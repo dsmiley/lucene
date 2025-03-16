@@ -26,9 +26,9 @@ import org.apache.lucene.document.SortedNumericDocValuesField;
 import org.apache.lucene.document.SortedSetDocValuesField;
 import org.apache.lucene.document.StringField;
 import org.apache.lucene.store.Directory;
+import org.apache.lucene.tests.util.LuceneTestCase;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.IOUtils;
-import org.apache.lucene.util.LuceneTestCase;
 
 /** Tests helper methods in DocValues */
 public class TestDocValues extends LuceneTestCase {
@@ -185,11 +185,15 @@ public class TestDocValues extends LuceneTestCase {
     LeafReader r = getOnlyLeafReader(dr);
 
     // ok
-    assertNotNull(DocValues.getBinary(r, "foo"));
     assertNotNull(DocValues.getSorted(r, "foo"));
     assertNotNull(DocValues.getSortedSet(r, "foo"));
 
     // errors
+    expectThrows(
+        IllegalStateException.class,
+        () -> {
+          DocValues.getBinary(r, "foo");
+        });
     expectThrows(
         IllegalStateException.class,
         () -> {

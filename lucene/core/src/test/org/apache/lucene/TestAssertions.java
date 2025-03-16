@@ -17,7 +17,7 @@
 package org.apache.lucene;
 
 import org.apache.lucene.analysis.TokenStream;
-import org.apache.lucene.util.LuceneTestCase;
+import org.apache.lucene.tests.util.LuceneTestCase;
 
 /** validate that assertions are enabled during tests */
 public class TestAssertions extends LuceneTestCase {
@@ -51,7 +51,9 @@ public class TestAssertions extends LuceneTestCase {
       if (assertsAreEnabled) {
         fail("TestTokenStream3 should fail assertion");
       }
-    } catch (AssertionError e) {
+    } catch (
+        @SuppressWarnings("unused")
+        AssertionError e) {
       // expected
     }
   }

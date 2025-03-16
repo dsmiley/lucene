@@ -19,7 +19,7 @@ package org.apache.lucene.expressions;
 import org.apache.lucene.expressions.js.JavascriptCompiler;
 import org.apache.lucene.search.DoubleValuesSource;
 import org.apache.lucene.search.SortField;
-import org.apache.lucene.util.LuceneTestCase;
+import org.apache.lucene.tests.util.LuceneTestCase;
 
 public class TestExpressionSortField extends LuceneTestCase {
 
@@ -34,6 +34,7 @@ public class TestExpressionSortField extends LuceneTestCase {
     assertEquals("<expr(sqrt(_score) + ln(popularity))>!", sf.toString());
   }
 
+  @SuppressWarnings("SelfAssertion")
   public void testEquals() throws Exception {
     Expression expr = JavascriptCompiler.compile("sqrt(_score) + ln(popularity)");
 

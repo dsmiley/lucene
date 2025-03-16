@@ -17,19 +17,17 @@
 
 package org.apache.lucene.spatial3d.geom;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
-
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import org.apache.lucene.tests.util.LuceneTestCase;
 import org.junit.Test;
 
 /**
  * Check relationship between polygon and GeoShapes of basic polygons. Normally we construct the
  * convex, concave counterpart and the convex polygon as a complex polygon.
  */
-public class TestSimpleGeoPolygonRelationships {
+public class TestSimpleGeoPolygonRelationships extends LuceneTestCase {
 
   /** Test with two shapes with no crossing edges and no points in common in convex case. */
   @Test
@@ -805,6 +803,7 @@ public class TestSimpleGeoPolygonRelationships {
     GeoPoint[] pointPath1 = new GeoPoint[] {point1, point2};
     GeoPath path1 = GeoPathFactory.makeGeoPath(PlanetModel.SPHERE, 0, pointPath1);
     GeoPath path2 = GeoPathFactory.makeGeoPath(PlanetModel.SPHERE, 1, pointPath1);
+    System.out.println("path1 = " + path1 + " path2 = " + path2);
     int rel = path1.getRelationship(path2);
     // if an end point is inside the shape it will always return intersects
     assertEquals(GeoArea.CONTAINS, rel); // should be contains?

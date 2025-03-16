@@ -157,97 +157,12 @@ public final class DocValues {
 
   /** An empty SortedNumericDocValues which returns zero values for every document */
   public static final SortedNumericDocValues emptySortedNumeric() {
-    return new SortedNumericDocValues() {
-
-      private int doc = -1;
-
-      @Override
-      public int advance(int target) {
-        return doc = NO_MORE_DOCS;
-      }
-
-      @Override
-      public boolean advanceExact(int target) throws IOException {
-        doc = target;
-        return false;
-      }
-
-      @Override
-      public int docID() {
-        return doc;
-      }
-
-      @Override
-      public int nextDoc() {
-        return doc = NO_MORE_DOCS;
-      }
-
-      @Override
-      public long cost() {
-        return 0;
-      }
-
-      @Override
-      public int docValueCount() {
-        throw new IllegalStateException();
-      }
-
-      @Override
-      public long nextValue() {
-        throw new IllegalStateException();
-      }
-    };
+    return singleton(emptyNumeric());
   }
 
   /** An empty SortedDocValues which returns {@link BytesRef#EMPTY_BYTES} for every document */
   public static final SortedSetDocValues emptySortedSet() {
-    final BytesRef empty = new BytesRef();
-    return new SortedSetDocValues() {
-
-      private int doc = -1;
-
-      @Override
-      public int advance(int target) {
-        return doc = NO_MORE_DOCS;
-      }
-
-      @Override
-      public boolean advanceExact(int target) throws IOException {
-        doc = target;
-        return false;
-      }
-
-      @Override
-      public int docID() {
-        return doc;
-      }
-
-      @Override
-      public int nextDoc() {
-        return doc = NO_MORE_DOCS;
-      }
-
-      @Override
-      public long cost() {
-        return 0;
-      }
-
-      @Override
-      public long nextOrd() {
-        assert false;
-        return NO_MORE_ORDS;
-      }
-
-      @Override
-      public BytesRef lookupOrd(long ord) {
-        return empty;
-      }
-
-      @Override
-      public long getValueCount() {
-        return 0;
-      }
-    };
+    return singleton(emptySorted());
   }
 
   /** Returns a multi-valued view over the provided SortedDocValues */
@@ -333,17 +248,14 @@ public final class DocValues {
    *     reader.
    * @throws IllegalStateException if {@code field} exists, but was not indexed with docvalues.
    * @throws IllegalStateException if {@code field} has docvalues, but the type is not {@link
-   *     DocValuesType#BINARY} or {@link DocValuesType#SORTED}.
+   *     DocValuesType#BINARY}.
    * @throws IOException if an I/O error occurs.
    */
   public static BinaryDocValues getBinary(LeafReader reader, String field) throws IOException {
     BinaryDocValues dv = reader.getBinaryDocValues(field);
     if (dv == null) {
-      dv = reader.getSortedDocValues(field);
-      if (dv == null) {
-        checkField(reader, field, DocValuesType.BINARY, DocValuesType.SORTED);
-        return emptyBinary();
-      }
+      checkField(reader, field, DocValuesType.BINARY);
+      return emptyBinary();
     }
     return dv;
   }

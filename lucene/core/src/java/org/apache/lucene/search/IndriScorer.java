@@ -26,8 +26,7 @@ public abstract class IndriScorer extends Scorer {
 
   private float boost;
 
-  protected IndriScorer(Weight weight, float boost) {
-    super(weight);
+  protected IndriScorer(float boost) {
     this.boost = boost;
   }
 
@@ -40,6 +39,7 @@ public abstract class IndriScorer extends Scorer {
   @Override
   public abstract float score() throws IOException;
 
+  @Override
   public abstract float smoothingScore(int docId) throws IOException;
 
   @Override

@@ -37,6 +37,13 @@ public class IndriDirichletSimilarity extends LMSimilarity {
   /** The &mu; parameter. */
   private final float mu;
 
+  /** Instantiates the similarity with the provided parameters. */
+  public IndriDirichletSimilarity(
+      CollectionModel collectionModel, boolean discountOverlaps, float mu) {
+    super(collectionModel, discountOverlaps);
+    this.mu = mu;
+  }
+
   /** Instantiates the similarity with the provided &mu; parameter. */
   public IndriDirichletSimilarity(CollectionModel collectionModel, float mu) {
     super(collectionModel);
@@ -86,6 +93,7 @@ public class IndriDirichletSimilarity extends LMSimilarity {
     return mu;
   }
 
+  @Override
   public String getName() {
     return String.format(Locale.ROOT, "IndriDirichlet(%f)", getMu());
   }

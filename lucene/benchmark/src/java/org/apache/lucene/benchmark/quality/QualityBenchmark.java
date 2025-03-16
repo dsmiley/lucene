@@ -20,6 +20,7 @@ import java.io.IOException;
 import java.io.PrintWriter;
 import org.apache.lucene.benchmark.quality.utils.DocNameExtractor;
 import org.apache.lucene.benchmark.quality.utils.SubmissionReport;
+import org.apache.lucene.index.StoredFields;
 import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.Query;
 import org.apache.lucene.search.ScoreDoc;
@@ -42,7 +43,7 @@ import org.apache.lucene.search.TopDocs;
 public class QualityBenchmark {
 
   /** Quality Queries that this quality benchmark would execute. */
-  protected QualityQuery qualityQueries[];
+  protected QualityQuery[] qualityQueries;
 
   /** Parser for turning QualityQueries into Lucene Queries. */
   protected QualityQueryParser qqParser;
@@ -72,7 +73,7 @@ public class QualityBenchmark {
    *     name for search results, and is important for judging the results.
    */
   public QualityBenchmark(
-      QualityQuery qqs[],
+      QualityQuery[] qqs,
       QualityQueryParser qqParser,
       IndexSearcher searcher,
       String docNameField) {
@@ -95,7 +96,7 @@ public class QualityBenchmark {
   public QualityStats[] execute(Judge judge, SubmissionReport submitRep, PrintWriter qualityLog)
       throws Exception {
     int nQueries = Math.min(maxQueries, qualityQueries.length);
-    QualityStats stats[] = new QualityStats[nQueries];
+    QualityStats[] stats = new QualityStats[nQueries];
     for (int i = 0; i < nQueries; i++) {
       QualityQuery qq = qualityQueries[i];
       // generate query
@@ -123,13 +124,14 @@ public class QualityBenchmark {
       QualityQuery qq, Query q, TopDocs td, Judge judge, PrintWriter logger, long searchTime)
       throws IOException {
     QualityStats stts = new QualityStats(judge.maxRecall(qq), searchTime);
-    ScoreDoc sd[] = td.scoreDocs;
+    ScoreDoc[] sd = td.scoreDocs;
     long t1 =
         System.currentTimeMillis(); // extraction of first doc name we measure also construction of
     // doc name extractor, just in case.
     DocNameExtractor xt = new DocNameExtractor(docNameField);
+    StoredFields storedFields = searcher.storedFields();
     for (int i = 0; i < sd.length; i++) {
-      String docName = xt.docName(searcher, sd[i].doc);
+      String docName = xt.docName(storedFields, sd[i].doc);
       long docNameExtractTime = System.currentTimeMillis() - t1;
       t1 = System.currentTimeMillis();
       boolean isRelevant = judge.isRelevant(docName, qq);
@@ -142,7 +144,9 @@ public class QualityBenchmark {
     return stts;
   }
 
-  /** @return the maximum number of quality queries to run. Useful at debugging. */
+  /**
+   * @return the maximum number of quality queries to run. Useful at debugging.
+   */
   public int getMaxQueries() {
     return maxQueries;
   }
@@ -152,7 +156,9 @@ public class QualityBenchmark {
     this.maxQueries = maxQueries;
   }
 
-  /** @return the maximum number of results to collect for each quality query. */
+  /**
+   * @return the maximum number of results to collect for each quality query.
+   */
   public int getMaxResults() {
     return maxResults;
   }

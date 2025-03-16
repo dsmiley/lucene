@@ -20,6 +20,7 @@ import java.io.IOException;
 import java.io.Reader;
 import org.apache.lucene.analysis.CharFilter;
 import org.apache.lucene.analysis.util.RollingCharBuffer;
+import org.apache.lucene.util.IgnoreRandomChains;
 
 /**
  * Normalizes Japanese horizontal iteration marks (odoriji) to their expanded form.
@@ -36,6 +37,8 @@ import org.apache.lucene.analysis.util.RollingCharBuffer;
  * reached in order to not keep a copy of the character stream in memory. Vertical iteration marks,
  * which are even rarer than horizontal iteration marks in contemporary Japanese, are unsupported.
  */
+@IgnoreRandomChains(
+    reason = "LUCENE-10358: fails with incorrect offsets or causes IndexOutOfBounds")
 public class JapaneseIterationMarkCharFilter extends CharFilter {
 
   /** Normalize kanji iteration marks by default */
@@ -56,11 +59,11 @@ public class JapaneseIterationMarkCharFilter extends CharFilter {
 
   private static final char FULL_STOP_PUNCTUATION = '\u3002'; // 。
 
-  // Hiragana to dakuten map (lookup using code point - 0x30ab（か）*/
-  private static char[] h2d = new char[50];
+  // Hiragana to dakuten map (lookup using code point - 0x30ab（か)
+  private static final char[] h2d = new char[50];
 
-  // Katakana to dakuten map (lookup using code point - 0x30ab（カ
-  private static char[] k2d = new char[50];
+  // Katakana to dakuten map (lookup using code point - 0x30ab（カ)
+  private static final char[] k2d = new char[50];
 
   private final RollingCharBuffer buffer = new RollingCharBuffer();
 

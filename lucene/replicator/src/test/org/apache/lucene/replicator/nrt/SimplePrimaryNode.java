@@ -34,8 +34,8 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Random;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import org.apache.lucene.analysis.MockAnalyzer;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field;
 import org.apache.lucene.document.FieldType;
@@ -48,6 +48,7 @@ import org.apache.lucene.index.IndexWriterConfig;
 import org.apache.lucene.index.LogMergePolicy;
 import org.apache.lucene.index.MergePolicy;
 import org.apache.lucene.index.SegmentCommitInfo;
+import org.apache.lucene.index.StoredFields;
 import org.apache.lucene.index.Term;
 import org.apache.lucene.index.TieredMergePolicy;
 import org.apache.lucene.search.IndexSearcher;
@@ -61,9 +62,11 @@ import org.apache.lucene.store.DataOutput;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.IOContext;
 import org.apache.lucene.store.IndexInput;
+import org.apache.lucene.tests.analysis.MockAnalyzer;
+import org.apache.lucene.tests.util.LuceneTestCase;
+import org.apache.lucene.tests.util.TestUtil;
 import org.apache.lucene.util.IOUtils;
-import org.apache.lucene.util.LuceneTestCase;
-import org.apache.lucene.util.TestUtil;
+import org.apache.lucene.util.SuppressForbidden;
 import org.apache.lucene.util.ThreadInterruptedException;
 
 /** A primary node that uses simple TCP connections to send commands and copy files */
@@ -158,12 +161,9 @@ class SimplePrimaryNode extends PrimaryNode {
     // iwc.setInfoStream(new PrintStreamInfoStream(System.out));
 
     // Force more frequent merging so we stress merge warming:
-    if (mp instanceof TieredMergePolicy) {
-      TieredMergePolicy tmp = (TieredMergePolicy) mp;
+    if (mp instanceof TieredMergePolicy tmp) {
       tmp.setSegmentsPerTier(3);
-      tmp.setMaxMergeAtOnce(3);
-    } else if (mp instanceof LogMergePolicy) {
-      LogMergePolicy lmp = (LogMergePolicy) mp;
+    } else if (mp instanceof LogMergePolicy lmp) {
       lmp.setMergeFactor(3);
     }
 
@@ -173,6 +173,7 @@ class SimplePrimaryNode extends PrimaryNode {
     return writer;
   }
 
+  @SuppressForbidden(reason = "Thread sleep")
   @Override
   protected void preCopyMergedSegmentFiles(SegmentCommitInfo info, Map<String, FileMetaData> files)
       throws IOException {
@@ -196,9 +197,6 @@ class SimplePrimaryNode extends PrimaryNode {
     warmingSegments.add(preCopy);
 
     try {
-
-      Set<String> fileNames = files.keySet();
-
       // Ask all currently known replicas to pre-copy this newly merged segment's files:
       for (int replicaTCPPort : replicaTCPPorts) {
         try {
@@ -206,7 +204,7 @@ class SimplePrimaryNode extends PrimaryNode {
           c.out.writeByte(SimpleReplicaNode.CMD_PRE_COPY_MERGE);
           c.out.writeVLong(primaryGen);
           c.out.writeVInt(tcpPort);
-          SimpleServer.writeFilesMetaData(c.out, files);
+          TestSimpleServer.writeFilesMetaData(c.out, files);
           c.flush();
           c.s.shutdownOutput();
           message("warm connection " + c.s);
@@ -243,12 +241,10 @@ class SimplePrimaryNode extends PrimaryNode {
           message(
               String.format(
                   Locale.ROOT,
-                  "top: warning: still warming merge "
-                      + info
-                      + " to "
-                      + preCopy.connections.size()
-                      + " replicas for %.1f sec...",
-                  (ns - startNS) / 1000000000.0));
+                  "top: warning: still warming merge %s to %d replicas for %.1f sec...",
+                  info,
+                  preCopy.connections.size(),
+                  (ns - startNS) / (double) TimeUnit.SECONDS.toNanos(1)));
           lastWarnNS = ns;
         }
 
@@ -389,17 +385,17 @@ class SimplePrimaryNode extends PrimaryNode {
   private static void writeCopyState(CopyState state, DataOutput out) throws IOException {
     // TODO (opto): we could encode to byte[] once when we created the copyState, and then just send
     // same byts to all replicas...
-    out.writeVInt(state.infosBytes.length);
-    out.writeBytes(state.infosBytes, 0, state.infosBytes.length);
-    out.writeVLong(state.gen);
-    out.writeVLong(state.version);
-    SimpleServer.writeFilesMetaData(out, state.files);
+    out.writeVInt(state.infosBytes().length);
+    out.writeBytes(state.infosBytes(), 0, state.infosBytes().length);
+    out.writeVLong(state.gen());
+    out.writeVLong(state.version());
+    TestSimpleServer.writeFilesMetaData(out, state.files());
 
-    out.writeVInt(state.completedMergeFiles.size());
-    for (String fileName : state.completedMergeFiles) {
+    out.writeVInt(state.completedMergeFiles().size());
+    for (String fileName : state.completedMergeFiles()) {
       out.writeString(fileName);
     }
-    out.writeVLong(state.primaryGen);
+    out.writeVLong(state.primaryGen());
   }
 
   /** Called when another node (replica) wants to copy files from us */
@@ -418,7 +414,7 @@ class SimplePrimaryNode extends PrimaryNode {
     } else if (b == 1) {
       // Caller does not have CopyState; we pull the latest one:
       copyState = getCopyState();
-      Thread.currentThread().setName("send-R" + replicaID + "-" + copyState.version);
+      Thread.currentThread().setName("send-R" + replicaID + "-" + copyState.version());
     } else {
       // Protocol error:
       throw new IllegalArgumentException("invalid CopyState byte=" + b);
@@ -513,6 +509,7 @@ class SimplePrimaryNode extends PrimaryNode {
     tokenizedWithTermVectors.setStoreTermVectorPositions(true);
   }
 
+  @SuppressForbidden(reason = "Thread sleep")
   private void handleIndexing(
       Socket socket,
       AtomicBoolean stop,
@@ -536,7 +533,9 @@ class SimplePrimaryNode extends PrimaryNode {
       byte cmd;
       try {
         cmd = in.readByte();
-      } catch (EOFException eofe) {
+      } catch (
+          @SuppressWarnings("unused")
+          EOFException eofe) {
         // done
         return;
       }
@@ -651,7 +650,12 @@ class SimplePrimaryNode extends PrimaryNode {
   // merges:
   static final byte CMD_NEW_REPLICA = 20;
 
+  // Leak a CopyState to simulate failure
+  static final byte CMD_LEAK_COPY_STATE = 24;
+  static final byte CMD_SET_CLOSE_WAIT_MS = 25;
+
   /** Handles incoming request to the naive TCP server wrapping this node */
+  @SuppressForbidden(reason = "Thread sleep")
   void handleOneConnection(
       Random random,
       ServerSocket ss,
@@ -678,7 +682,9 @@ class SimplePrimaryNode extends PrimaryNode {
 
       try {
         cmd = in.readByte();
-      } catch (EOFException eofe) {
+      } catch (
+          @SuppressWarnings("unused")
+          EOFException eofe) {
         break;
       }
 
@@ -812,13 +818,22 @@ class SimplePrimaryNode extends PrimaryNode {
               c.out.writeByte(SimpleReplicaNode.CMD_PRE_COPY_MERGE);
               c.out.writeVLong(primaryGen);
               c.out.writeVInt(tcpPort);
-              SimpleServer.writeFilesMetaData(c.out, preCopy.files);
+              TestSimpleServer.writeFilesMetaData(c.out, preCopy.files);
               c.flush();
               c.s.shutdownOutput();
               message("successfully started warming");
             }
           }
           break;
+
+        case CMD_LEAK_COPY_STATE:
+          message("leaking a CopyState");
+          getCopyState();
+          continue outer;
+
+        case CMD_SET_CLOSE_WAIT_MS:
+          setRemoteCloseTimeoutMs(in.readInt());
+          continue outer;
 
         default:
           throw new IllegalArgumentException("unrecognized cmd=" + cmd + " via socket=" + socket);
@@ -843,9 +858,10 @@ class SimplePrimaryNode extends PrimaryNode {
                 + hitCount);
         TopDocs hits =
             searcher.search(new TermQuery(new Term("marker", "marker")), expectedAtLeastCount);
+        StoredFields storedFields = searcher.storedFields();
         List<Integer> seen = new ArrayList<>();
         for (ScoreDoc hit : hits.scoreDocs) {
-          Document doc = searcher.doc(hit.doc);
+          Document doc = storedFields.document(hit.doc);
           seen.add(Integer.parseInt(doc.get("docid").substring(1)));
         }
         Collections.sort(seen);

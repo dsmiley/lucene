@@ -17,18 +17,20 @@
 package org.apache.lucene.index;
 
 import java.io.IOException;
-import java.util.Collections;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArraySet;
 import org.apache.lucene.codecs.Codec;
 import org.apache.lucene.codecs.DocValuesProducer;
 import org.apache.lucene.codecs.FieldInfosFormat;
 import org.apache.lucene.codecs.FieldsProducer;
+import org.apache.lucene.codecs.KnnVectorsReader;
 import org.apache.lucene.codecs.NormsProducer;
 import org.apache.lucene.codecs.PointsReader;
 import org.apache.lucene.codecs.StoredFieldsReader;
 import org.apache.lucene.codecs.TermVectorsReader;
-import org.apache.lucene.codecs.VectorReader;
+import org.apache.lucene.internal.hppc.LongArrayList;
+import org.apache.lucene.internal.tests.SegmentReaderAccess;
+import org.apache.lucene.internal.tests.TestSecrets;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.IOContext;
 import org.apache.lucene.util.Bits;
@@ -46,7 +48,7 @@ public final class SegmentReader extends CodecReader {
 
   private final SegmentCommitInfo si;
   // this is the original SI that IW uses internally but it's mutated behind the scenes
-  // and we don't want this SI to be used for anything. Yet, IW needs this to do maintainance
+  // and we don't want this SI to be used for anything. Yet, IW needs this to do maintenance
   // and lookup pooled readers etc.
   private final SegmentCommitInfo originalSi;
   private final LeafMetaData metaData;
@@ -81,7 +83,11 @@ public final class SegmentReader extends CodecReader {
     this.si = si.clone();
     this.originalSi = si;
     this.metaData =
-        new LeafMetaData(createdVersionMajor, si.info.getMinVersion(), si.info.getIndexSort());
+        new LeafMetaData(
+            createdVersionMajor,
+            si.info.getMinVersion(),
+            si.info.getIndexSort(),
+            si.info.getHasBlocks());
 
     // We pull liveDocs/DV updates from disk:
     this.isNRT = false;
@@ -219,7 +225,7 @@ public final class SegmentReader extends CodecReader {
       if (docValuesProducer instanceof SegmentDocValuesProducer) {
         segDocValues.decRef(((SegmentDocValuesProducer) docValuesProducer).dvGens);
       } else if (docValuesProducer != null) {
-        segDocValues.decRef(Collections.singletonList(-1L));
+        segDocValues.decRef(LongArrayList.from(-1L));
       }
     }
   }
@@ -245,13 +251,17 @@ public final class SegmentReader extends CodecReader {
   @Override
   public TermVectorsReader getTermVectorsReader() {
     ensureOpen();
-    return core.termVectorsLocal.get();
+    if (core.termVectorsReaderOrig == null) {
+      return null;
+    } else {
+      return core.termVectorsReaderOrig.clone();
+    }
   }
 
   @Override
   public StoredFieldsReader getFieldsReader() {
     ensureOpen();
-    return core.fieldsReaderLocal.get();
+    return core.fieldsReaderOrig.clone();
   }
 
   @Override
@@ -273,8 +283,8 @@ public final class SegmentReader extends CodecReader {
   }
 
   @Override
-  public VectorReader getVectorReader() {
-    return core.vectorReader;
+  public KnnVectorsReader getVectorReader() {
+    return core.knnVectorsReader;
   }
 
   @Override
@@ -311,7 +321,7 @@ public final class SegmentReader extends CodecReader {
   private final Set<ClosedListener> readerClosedListeners = new CopyOnWriteArraySet<>();
 
   @Override
-  void notifyReaderClosedListeners() throws IOException {
+  protected void notifyReaderClosedListeners() throws IOException {
     synchronized (readerClosedListeners) {
       IOUtils.applyToAll(readerClosedListeners, l -> l.onClose(readerCacheHelper.getKey()));
     }
@@ -392,5 +402,15 @@ public final class SegmentReader extends CodecReader {
     if (core.cfsReader != null) {
       core.cfsReader.checkIntegrity();
     }
+  }
+
+  static {
+    TestSecrets.setSegmentReaderAccess(
+        new SegmentReaderAccess() {
+          @Override
+          public Object getCore(SegmentReader segmentReader) {
+            return segmentReader.core;
+          }
+        });
   }
 }

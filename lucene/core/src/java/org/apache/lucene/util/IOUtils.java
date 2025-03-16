@@ -18,6 +18,7 @@ package org.apache.lucene.util;
 
 import java.io.BufferedReader;
 import java.io.Closeable;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -104,21 +105,20 @@ public final class IOUtils {
   }
 
   /**
-   * Closes all given <code>Closeable</code>s, suppressing all thrown non {@link
-   * VirtualMachineError} exceptions. Even if a {@link VirtualMachineError} is thrown all given
-   * closeable are closed.
+   * Closes all given <code>Closeable</code>s, suppressing all thrown non {@link Error} exceptions.
+   * Even if a {@link Error} is thrown all given closeable are closed.
    *
    * @see #closeWhileHandlingException(Closeable...)
    */
   public static void closeWhileHandlingException(Iterable<? extends Closeable> objects) {
-    VirtualMachineError firstError = null;
+    Error firstError = null;
     Throwable firstThrowable = null;
     for (Closeable object : objects) {
       try {
         if (object != null) {
           object.close();
         }
-      } catch (VirtualMachineError e) {
+      } catch (Error e) {
         firstError = useOrSuppress(firstError, e);
       } catch (Throwable t) {
         firstThrowable = useOrSuppress(firstThrowable, t);
@@ -127,7 +127,7 @@ public final class IOUtils {
     if (firstError != null) {
       // we ensure that we bubble up any errors. We can't recover from these but need to make sure
       // they are
-      // bubbled up. if a non-VMError is thrown we also add the suppressed exceptions to it.
+      // bubbled up. if a non-Error is thrown we also add the suppressed exceptions to it.
       if (firstThrowable != null) {
         firstError.addSuppressed(firstThrowable);
       }
@@ -157,32 +157,20 @@ public final class IOUtils {
   }
 
   /**
-   * Opens a Reader for the given resource using a {@link CharsetDecoder}. Unlike Java's defaults
-   * this reader will throw an exception if your it detects the read charset doesn't match the
-   * expected {@link Charset}.
+   * Wrap all calls to {@link Class#getResource(String)} or {@link
+   * Class#getResourceAsStream(String)} using this method to enforce existence of the resource. This
+   * code works around those methods returning {@code null} to signal non-existence.
    *
-   * <p>Decoding readers are useful to load configuration files, stopword lists or synonym files to
-   * detect character set problems. However, it's not recommended to use as a common purpose reader.
-   *
-   * @param clazz the class used to locate the resource
-   * @param resource the resource name to load
-   * @param charSet the expected charset
-   * @return a reader to read the given file
+   * @param resource return value of above methods
+   * @param name of resource
+   * @return the resource passed in if existent
+   * @throws FileNotFoundException if resource was not found
    */
-  public static Reader getDecodingReader(Class<?> clazz, String resource, Charset charSet)
-      throws IOException {
-    InputStream stream = null;
-    boolean success = false;
-    try {
-      stream = clazz.getResourceAsStream(resource);
-      final Reader reader = getDecodingReader(stream, charSet);
-      success = true;
-      return reader;
-    } finally {
-      if (!success) {
-        IOUtils.close(stream);
-      }
+  public static <T> T requireResourceNonNull(T resource, String name) throws IOException {
+    if (resource == null) {
+      throw new FileNotFoundException("The resource '" + name + "' was not found.");
     }
+    return resource;
   }
 
   /**
@@ -194,7 +182,9 @@ public final class IOUtils {
     for (String name : files) {
       try {
         dir.deleteFile(name);
-      } catch (Throwable ignored) {
+      } catch (
+          @SuppressWarnings("unused")
+          Throwable ignored) {
         // ignore
       }
     }
@@ -248,7 +238,9 @@ public final class IOUtils {
       if (name != null) {
         try {
           Files.delete(name);
-        } catch (Throwable ignored) {
+        } catch (
+            @SuppressWarnings("unused")
+            Throwable ignored) {
           // ignore
         }
       }
@@ -413,38 +405,6 @@ public final class IOUtils {
   }
 
   /**
-   * Rethrows the argument as {@code IOException} or {@code RuntimeException} if it's not null.
-   *
-   * @deprecated This method is deprecated in favor of {@link #rethrowAlways}. Code should be
-   *     updated to {@link #rethrowAlways} and guarded with an additional null-argument check
-   *     (because {@link #rethrowAlways} is not accepting null arguments).
-   */
-  @Deprecated
-  public static void reThrow(Throwable th) throws IOException {
-    if (th != null) {
-      throw rethrowAlways(th);
-    }
-  }
-
-  /**
-   * @deprecated This method is deprecated in favor of {@link #rethrowAlways}. Code should be
-   *     updated to {@link #rethrowAlways} and guarded with an additional null-argument check
-   *     (because {@link #rethrowAlways} is not accepting null arguments).
-   */
-  @Deprecated
-  public static void reThrowUnchecked(Throwable th) {
-    if (th != null) {
-      if (th instanceof Error) {
-        throw (Error) th;
-      }
-      if (th instanceof RuntimeException) {
-        throw (RuntimeException) th;
-      }
-      throw new RuntimeException(th);
-    }
-  }
-
-  /**
    * Ensure that any writes to the given file is written to the storage device that contains it.
    *
    * @param fileToSync the file to fsync
@@ -500,31 +460,11 @@ public final class IOUtils {
    * The first exception thrown by the consumer is re-thrown and subsequent exceptions are
    * suppressed.
    */
+  @SuppressWarnings("StreamToIterable")
   public static <T> void applyToAll(Collection<T> collection, IOConsumer<T> consumer)
       throws IOException {
     IOUtils.close(
         collection.stream().filter(Objects::nonNull).map(t -> (Closeable) () -> consumer.accept(t))
             ::iterator);
-  }
-
-  /**
-   * An IO operation with a single input.
-   *
-   * @see java.util.function.Consumer
-   */
-  @FunctionalInterface
-  public interface IOConsumer<T> {
-    /** Performs this operation on the given argument. */
-    void accept(T input) throws IOException;
-  }
-
-  /**
-   * A Function that may throw an IOException
-   *
-   * @see java.util.function.Function
-   */
-  @FunctionalInterface
-  public interface IOFunction<T, R> {
-    R apply(T t) throws IOException;
   }
 }

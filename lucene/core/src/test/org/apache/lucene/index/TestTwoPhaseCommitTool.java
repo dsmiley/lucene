@@ -18,18 +18,18 @@ package org.apache.lucene.index;
 
 import java.io.IOException;
 import java.util.Map;
-import org.apache.lucene.util.LuceneTestCase;
+import org.apache.lucene.tests.util.LuceneTestCase;
 
 public class TestTwoPhaseCommitTool extends LuceneTestCase {
 
   private static class TwoPhaseCommitImpl implements TwoPhaseCommit {
+    @SuppressWarnings("NonFinalStaticField")
     static boolean commitCalled = false;
+
     final boolean failOnPrepare;
     final boolean failOnCommit;
     final boolean failOnRollback;
     boolean rollbackCalled = false;
-    Map<String, String> prepareCommitData = null;
-    Map<String, String> commitData = null;
 
     public TwoPhaseCommitImpl(boolean failOnPrepare, boolean failOnCommit, boolean failOnRollback) {
       this.failOnPrepare = failOnPrepare;
@@ -43,7 +43,6 @@ public class TestTwoPhaseCommitTool extends LuceneTestCase {
     }
 
     public long prepareCommit(Map<String, String> commitData) throws IOException {
-      this.prepareCommitData = commitData;
       assertFalse("commit should not have been called before all prepareCommit were", commitCalled);
       if (failOnPrepare) {
         throw new IOException("failOnPrepare");
@@ -57,7 +56,6 @@ public class TestTwoPhaseCommitTool extends LuceneTestCase {
     }
 
     public long commit(Map<String, String> commitData) throws IOException {
-      this.commitData = commitData;
       commitCalled = true;
       if (failOnCommit) {
         throw new RuntimeException("failOnCommit");
@@ -106,7 +104,9 @@ public class TestTwoPhaseCommitTool extends LuceneTestCase {
     boolean anyFailure = false;
     try {
       TwoPhaseCommitTool.execute(objects);
-    } catch (Throwable t) {
+    } catch (
+        @SuppressWarnings("unused")
+        Throwable t) {
       anyFailure = true;
     }
 

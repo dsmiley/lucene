@@ -18,6 +18,7 @@ package org.apache.lucene.index;
 
 import java.io.PrintStream;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.stream.Collectors;
 import org.apache.lucene.analysis.Analyzer;
 import org.apache.lucene.analysis.standard.StandardAnalyzer;
@@ -53,7 +54,7 @@ import org.apache.lucene.util.Version;
 public final class IndexWriterConfig extends LiveIndexWriterConfig {
 
   /** Specifies the open mode for {@link IndexWriter}. */
-  public static enum OpenMode {
+  public enum OpenMode {
     /** Creates a new index or overwrites an existing one. */
     CREATE,
 
@@ -61,7 +62,7 @@ public final class IndexWriterConfig extends LiveIndexWriterConfig {
     APPEND,
 
     /**
-     * Creates a new index if one does not exist, otherwise it opens the index and documents will be
+     * Creates a new index, if one does not exist, otherwise opens the index and documents will be
      * appended.
      */
     CREATE_OR_APPEND
@@ -104,7 +105,7 @@ public final class IndexWriterConfig extends LiveIndexWriterConfig {
    * Default value for time to wait for merges on commit or getReader (when using a {@link
    * MergePolicy} that implements {@link MergePolicy#findFullFlushMerges}).
    */
-  public static final long DEFAULT_MAX_FULL_FLUSH_MERGE_WAIT_MILLIS = 0;
+  public static final long DEFAULT_MAX_FULL_FLUSH_MERGE_WAIT_MILLIS = 500;
 
   // indicates whether this config instance is already attached to a writer.
   // not final so that it can be cloned properly.
@@ -456,9 +457,14 @@ public final class IndexWriterConfig extends LiveIndexWriterConfig {
    * call, like natural segment merges. The default is <code>
    * {@value IndexWriterConfig#DEFAULT_MAX_FULL_FLUSH_MERGE_WAIT_MILLIS}</code>.
    *
-   * <p>Note: This settings has no effect unless {@link
-   * MergePolicy#findFullFlushMerges(MergeTrigger, SegmentInfos, MergePolicy.MergeContext)} has an
-   * implementation that actually returns merges which by default doesn't return any merges.
+   * <p>Note: Which segments would get merged depends on the implementation of {@link
+   * MergePolicy#findFullFlushMerges(MergeTrigger, SegmentInfos, MergePolicy.MergeContext)}
+   *
+   * <p>Note: Set to 0 to disable merging on full flush.
+   *
+   * <p>Note: If {@link SerialMergeScheduler} is used and a non-zero timout is configured,
+   * full-flush merges will always wait for the merge to finish without honoring the configured
+   * timeout.
    */
   public IndexWriterConfig setMaxFullFlushMergeWaitMillis(long maxFullFlushMergeWaitMillis) {
     this.maxFullFlushMergeWaitMillis = maxFullFlushMergeWaitMillis;
@@ -478,6 +484,18 @@ public final class IndexWriterConfig extends LiveIndexWriterConfig {
     return this;
   }
 
+  /**
+   * Set the comparator for sorting leaf readers. A DirectoryReader opened from a IndexWriter with
+   * this configuration will have its leaf readers sorted with the provided leaf sorter.
+   *
+   * @param leafSorter – a comparator for sorting leaf readers
+   * @return IndexWriterConfig with leafSorter set.
+   */
+  public IndexWriterConfig setLeafSorter(Comparator<LeafReader> leafSorter) {
+    this.leafSorter = leafSorter;
+    return this;
+  }
+
   @Override
   public String toString() {
     StringBuilder sb = new StringBuilder(super.toString());
@@ -491,28 +509,28 @@ public final class IndexWriterConfig extends LiveIndexWriterConfig {
   }
 
   /**
-   * Sets the soft deletes field. A soft delete field in lucene is a doc-values field that marks a
-   * document as soft-deleted if a document has at least one value in that field. If a document is
-   * marked as soft-deleted the document is treated as if it has been hard-deleted through the
+   * Sets the soft-deletes field. A soft-delete field in Lucene is a doc-values field that marks a
+   * document as soft-deleted, if a document has at least one value in that field. If a document is
+   * marked as soft-deleted, the document is treated as if it has been hard-deleted through the
    * IndexWriter API ({@link IndexWriter#deleteDocuments(Term...)}. Merges will reclaim soft-deleted
-   * as well as hard-deleted documents and index readers obtained from the IndexWriter will reflect
-   * all deleted documents in it's live docs. If soft-deletes are used documents must be indexed via
+   * as well as hard-deleted documents, and index readers obtained from the IndexWriter will reflect
+   * all deleted documents in its live docs. If soft-deletes are used, documents must be indexed via
    * {@link IndexWriter#softUpdateDocument(Term, Iterable, Field...)}. Deletes are applied via
    * {@link IndexWriter#updateDocValues(Term, Field...)}.
    *
    * <p>Soft deletes allow to retain documents across merges if the merge policy modifies the live
    * docs of a merge reader. {@link SoftDeletesRetentionMergePolicy} for instance allows to specify
-   * an arbitrary query to mark all documents that should survive the merge. This can be used to for
-   * example keep all document modifications for a certain time interval or the last N operations if
-   * some kind of sequence ID is available in the index.
+   * an arbitrary query to mark all documents that should survive the merge. This can be used, for
+   * example, to keep all document modifications for a certain time interval or the last N
+   * operations if some kind of sequence ID is available in the index.
    *
-   * <p>Currently there is no API support to un-delete a soft-deleted document. In oder to un-delete
-   * the document must be re-indexed using {@link IndexWriter#softUpdateDocument(Term, Iterable,
-   * Field...)}.
+   * <p>Currently there is no API support to un-delete a soft-deleted document. In order to
+   * un-delete a document, it must be re-indexed using {@link IndexWriter#softUpdateDocument(Term,
+   * Iterable, Field...)}.
    *
-   * <p>The default value for this is <code>null</code> which disables soft-deletes. If soft-deletes
-   * are enabled documents can still be hard-deleted. Hard-deleted documents will won't considered
-   * as soft-deleted even if they have a value in the soft-deletes field.
+   * <p>The default value for this is <code>null</code>, which disables soft-deletes. If
+   * soft-deletes are enabled, documents can still be hard-deleted. Hard-deleted documents won't be
+   * considered as soft-deleted even if they have a value in the soft-deletes field.
    *
    * @see #getSoftDeletesField()
    */
@@ -525,6 +543,22 @@ public final class IndexWriterConfig extends LiveIndexWriterConfig {
   public IndexWriterConfig setIndexWriterEventListener(
       final IndexWriterEventListener eventListener) {
     this.eventListener = eventListener;
+    return this;
+  }
+
+  /**
+   * Sets the parent document field. If this optional property is set, IndexWriter will add an
+   * internal field to every root document added to the index writer. A document is considered a
+   * parent document if it's the last document in a document block indexed via {@link
+   * IndexWriter#addDocuments(Iterable)} or {@link IndexWriter#updateDocuments(Term, Iterable)} and
+   * its relatives. Additionally, all individual documents added via the single document methods
+   * ({@link IndexWriter#addDocuments(Iterable)} etc.) are also considered parent documents. This
+   * property is optional for all indices that don't use document blocks in combination with index
+   * sorting. In order to maintain the API guarantee that the document order of a block is not
+   * altered by the {@link IndexWriter} a marker for parent documents is required.
+   */
+  public IndexWriterConfig setParentField(String parentField) {
+    this.parentField = parentField;
     return this;
   }
 }

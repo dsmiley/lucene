@@ -55,7 +55,8 @@ public abstract class Codec implements NamedSPILoader.NamedSPI {
       return LOADER;
     }
 
-    static Codec defaultCodec = LOADER.lookup("Lucene90");
+    @SuppressWarnings("NonFinalStaticField")
+    static Codec defaultCodec = LOADER.lookup("Lucene101");
   }
 
   private final String name;
@@ -111,7 +112,7 @@ public abstract class Codec implements NamedSPILoader.NamedSPI {
   public abstract PointsFormat pointsFormat();
 
   /** Encodes/decodes numeric vector fields */
-  public abstract VectorFormat vectorFormat();
+  public abstract KnnVectorsFormat knnVectorsFormat();
 
   /** looks up a codec by name */
   public static Codec forName(String name) {

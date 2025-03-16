@@ -18,12 +18,9 @@ package org.apache.lucene.search.similarities;
 
 import java.util.ArrayList;
 import java.util.List;
-import org.apache.lucene.index.FieldInvertState;
-import org.apache.lucene.index.IndexOptions;
 import org.apache.lucene.search.CollectionStatistics;
 import org.apache.lucene.search.Explanation;
 import org.apache.lucene.search.TermStatistics;
-import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.SmallFloat;
 
 /**
@@ -34,7 +31,6 @@ import org.apache.lucene.util.SmallFloat;
 public class BM25Similarity extends Similarity {
   private final float k1;
   private final float b;
-  private final boolean discountOverlaps;
 
   /**
    * BM25 with the supplied parameter values.
@@ -47,6 +43,7 @@ public class BM25Similarity extends Similarity {
    *     within the range {@code [0..1]}
    */
   public BM25Similarity(float k1, float b, boolean discountOverlaps) {
+    super(discountOverlaps);
     if (Float.isFinite(k1) == false || k1 < 0) {
       throw new IllegalArgumentException(
           "illegal k1 value: " + k1 + ", must be a non-negative finite value");
@@ -56,7 +53,6 @@ public class BM25Similarity extends Similarity {
     }
     this.k1 = k1;
     this.b = b;
-    this.discountOverlaps = discountOverlaps;
   }
 
   /**
@@ -106,23 +102,9 @@ public class BM25Similarity extends Similarity {
     return (float) Math.log(1 + (docCount - docFreq + 0.5D) / (docFreq + 0.5D));
   }
 
-  /** The default implementation returns <code>1</code> */
-  protected float scorePayload(int doc, int start, int end, BytesRef payload) {
-    return 1;
-  }
-
   /** The default implementation computes the average as <code>sumTotalTermFreq / docCount</code> */
   protected float avgFieldLength(CollectionStatistics collectionStats) {
     return (float) (collectionStats.sumTotalTermFreq() / (double) collectionStats.docCount());
-  }
-
-  /**
-   * Returns true if overlap tokens are discounted from the document's length.
-   *
-   * @see #BM25Similarity(float, float, boolean)
-   */
-  public boolean getDiscountOverlaps() {
-    return discountOverlaps;
   }
 
   /** Cache of decoded bytes. */
@@ -132,19 +114,6 @@ public class BM25Similarity extends Similarity {
     for (int i = 0; i < 256; i++) {
       LENGTH_TABLE[i] = SmallFloat.byte4ToInt((byte) i);
     }
-  }
-
-  @Override
-  public final long computeNorm(FieldInvertState state) {
-    final int numTerms;
-    if (state.getIndexOptions() == IndexOptions.DOCS && state.getIndexCreatedVersionMajor() >= 8) {
-      numTerms = state.getUniqueTermCount();
-    } else if (discountOverlaps) {
-      numTerms = state.getLength() - state.getNumOverlap();
-    } else {
-      numTerms = state.getLength();
-    }
-    return SmallFloat.intToByte4(numTerms);
   }
 
   /**
@@ -188,7 +157,7 @@ public class BM25Similarity extends Similarity {
    * @return an Explain object that includes both an idf score factor for the phrase and an
    *     explanation for each term.
    */
-  public Explanation idfExplain(CollectionStatistics collectionStats, TermStatistics termStats[]) {
+  public Explanation idfExplain(CollectionStatistics collectionStats, TermStatistics[] termStats) {
     double idf = 0d; // sum into a double before casting into a float
     List<Explanation> details = new ArrayList<>();
     for (final TermStatistics stat : termStats) {
@@ -219,16 +188,22 @@ public class BM25Similarity extends Similarity {
   private static class BM25Scorer extends SimScorer {
     /** query boost */
     private final float boost;
+
     /** k1 value for scale factor */
     private final float k1;
+
     /** b value for length normalization impact */
     private final float b;
+
     /** BM25's idf */
     private final Explanation idf;
+
     /** The average document length. */
     private final float avgdl;
+
     /** precomputed norm[256] with k1 * ((1 - b) + b * dl / avgdl) */
     private final float[] cache;
+
     /** weight (idf * boost) */
     private final float weight;
 

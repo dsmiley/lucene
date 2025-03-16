@@ -17,6 +17,7 @@
 package org.apache.lucene.analysis.cjk;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import org.apache.lucene.analysis.Analyzer;
 import org.apache.lucene.analysis.CharArraySet;
 import org.apache.lucene.analysis.LowerCaseFilter;
@@ -24,7 +25,9 @@ import org.apache.lucene.analysis.StopFilter;
 import org.apache.lucene.analysis.StopwordAnalyzerBase;
 import org.apache.lucene.analysis.TokenStream;
 import org.apache.lucene.analysis.Tokenizer;
+import org.apache.lucene.analysis.WordlistLoader;
 import org.apache.lucene.analysis.standard.StandardTokenizer;
+import org.apache.lucene.util.IOUtils;
 
 /**
  * An {@link Analyzer} that tokenizes text with {@link StandardTokenizer}, normalizes content with
@@ -57,11 +60,16 @@ public final class CJKAnalyzer extends StopwordAnalyzerBase {
 
     static {
       try {
-        DEFAULT_STOP_SET = loadStopwordSet(false, CJKAnalyzer.class, DEFAULT_STOPWORD_FILE, "#");
+        DEFAULT_STOP_SET =
+            WordlistLoader.getWordSet(
+                IOUtils.requireResourceNonNull(
+                    CJKAnalyzer.class.getResourceAsStream(DEFAULT_STOPWORD_FILE),
+                    DEFAULT_STOPWORD_FILE),
+                "#");
       } catch (IOException ex) {
         // default set should always be present as it is part of the
         // distribution (JAR)
-        throw new RuntimeException("Unable to load default stopword set");
+        throw new UncheckedIOException("Unable to load default stopword set", ex);
       }
     }
   }

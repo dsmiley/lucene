@@ -73,7 +73,7 @@ public class Trie {
   List<CharSequence> cmds = new ArrayList<>();
   int root;
 
-  boolean forward = false;
+  boolean forward;
 
   /**
    * Constructor for the Trie object.
@@ -126,7 +126,7 @@ public class Trie {
    * @return The all value
    */
   public CharSequence[] getAll(CharSequence key) {
-    int res[] = new int[key.length()];
+    int[] res = new int[key.length()];
     int resc = 0;
     Row now = getRow(root);
     int w;
@@ -134,7 +134,7 @@ public class Trie {
     boolean br = false;
 
     for (int i = 0; i < key.length() - 1; i++) {
-      Character ch = e.next();
+      char ch = e.next();
       w = now.getCmd(ch);
       if (w >= 0) {
         int n = w;
@@ -175,7 +175,7 @@ public class Trie {
     if (resc < 1) {
       return null;
     }
-    CharSequence R[] = new CharSequence[resc];
+    CharSequence[] R = new CharSequence[resc];
     for (int j = 0; j < resc; j++) {
       R[j] = cmds.get(res[j]);
     }
@@ -227,8 +227,7 @@ public class Trie {
     Cell c;
     int cmd = -1;
     StrEnum e = new StrEnum(key, forward);
-    Character ch = null;
-    Character aux = null;
+    char ch;
 
     for (int i = 0; i < key.length(); ) {
       ch = e.next();
@@ -243,7 +242,7 @@ public class Trie {
 
       for (int skip = c.skip; skip > 0; skip--) {
         if (i < key.length()) {
-          aux = e.next();
+          e.next();
         } else {
           return null;
         }
@@ -273,7 +272,7 @@ public class Trie {
     StrEnum e = new StrEnum(key, forward);
 
     for (int i = 0; i < key.length() - 1; i++) {
-      Character ch = e.next();
+      char ch = e.next();
       w = now.getCmd(ch);
       if (w >= 0) {
         last = cmds.get(w);
@@ -344,7 +343,7 @@ public class Trie {
     StrEnum e = new StrEnum(key, forward);
 
     for (int i = 0; i < e.length() - 1; i++) {
-      Character ch = e.next();
+      char ch = e.next();
       node = r.getRef(ch);
       if (node >= 0) {
         r = getRow(node);

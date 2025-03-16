@@ -43,10 +43,8 @@ import org.apache.lucene.store.IndexInput;
 import org.apache.lucene.util.ArrayUtil;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.BytesRefBuilder;
-import org.apache.lucene.util.CharsRef;
 import org.apache.lucene.util.CharsRefBuilder;
 import org.apache.lucene.util.IOUtils;
-import org.apache.lucene.util.RamUsageEstimator;
 import org.apache.lucene.util.StringHelper;
 
 /**
@@ -58,12 +56,7 @@ import org.apache.lucene.util.StringHelper;
  */
 public class SimpleTextTermVectorsReader extends TermVectorsReader {
 
-  private static final long BASE_RAM_BYTES_USED =
-      RamUsageEstimator.shallowSizeOfInstance(SimpleTextTermVectorsReader.class)
-          + RamUsageEstimator.shallowSizeOfInstance(BytesRef.class)
-          + RamUsageEstimator.shallowSizeOfInstance(CharsRef.class);
-
-  private long offsets[]; /* docid -> offset in .vec file */
+  private long[] offsets; /* docid -> offset in .vec file */
   private IndexInput in;
   private BytesRefBuilder scratch = new BytesRefBuilder();
   private CharsRefBuilder scratchUTF16 = new CharsRefBuilder();
@@ -80,7 +73,9 @@ public class SimpleTextTermVectorsReader extends TermVectorsReader {
       if (!success) {
         try {
           close();
-        } catch (Throwable t) {
+        } catch (
+            @SuppressWarnings("unused")
+            Throwable t) {
         } // ensure we throw our original exception
       }
     }
@@ -88,7 +83,7 @@ public class SimpleTextTermVectorsReader extends TermVectorsReader {
   }
 
   // used by clone
-  SimpleTextTermVectorsReader(long offsets[], IndexInput in) {
+  SimpleTextTermVectorsReader(long[] offsets, IndexInput in) {
     this.offsets = offsets;
     this.in = in;
   }
@@ -155,7 +150,7 @@ public class SimpleTextTermVectorsReader extends TermVectorsReader {
         readLine();
         assert StringHelper.startsWith(scratch.get(), TERMTEXT);
         int termLength = scratch.length() - TERMTEXT.length;
-        term.grow(termLength);
+        term.growNoCopy(termLength);
         term.setLength(termLength);
         System.arraycopy(scratch.bytes(), TERMTEXT.length, term.bytes(), 0, termLength);
 
@@ -190,7 +185,7 @@ public class SimpleTextTermVectorsReader extends TermVectorsReader {
                 if (scratch.length() - PAYLOAD.length == 0) {
                   postings.payloads[k] = null;
                 } else {
-                  byte payloadBytes[] = new byte[scratch.length() - PAYLOAD.length];
+                  byte[] payloadBytes = new byte[scratch.length() - PAYLOAD.length];
                   System.arraycopy(
                       scratch.bytes(), PAYLOAD.length, payloadBytes, 0, payloadBytes.length);
                   postings.payloads[k] = new BytesRef(payloadBytes);
@@ -337,10 +332,10 @@ public class SimpleTextTermVectorsReader extends TermVectorsReader {
 
   private static class SimpleTVPostings {
     private int freq;
-    private int positions[];
-    private int startOffsets[];
-    private int endOffsets[];
-    private BytesRef payloads[];
+    private int[] positions;
+    private int[] startOffsets;
+    private int[] endOffsets;
+    private BytesRef[] payloads;
   }
 
   private static class SimpleTVTermsEnum extends BaseTermsEnum {
@@ -530,7 +525,7 @@ public class SimpleTextTermVectorsReader extends TermVectorsReader {
       return slowAdvance(target);
     }
 
-    public void reset(int[] positions, int[] startOffsets, int[] endOffsets, BytesRef payloads[]) {
+    public void reset(int[] positions, int[] startOffsets, int[] endOffsets, BytesRef[] payloads) {
       this.positions = positions;
       this.startOffsets = startOffsets;
       this.endOffsets = endOffsets;
@@ -579,11 +574,6 @@ public class SimpleTextTermVectorsReader extends TermVectorsReader {
     public long cost() {
       return 1;
     }
-  }
-
-  @Override
-  public long ramBytesUsed() {
-    return BASE_RAM_BYTES_USED + RamUsageEstimator.sizeOf(offsets);
   }
 
   @Override

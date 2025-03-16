@@ -20,12 +20,12 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
+import org.apache.lucene.queries.spans.SpanQuery;
 import org.apache.lucene.search.AutomatonQuery;
 import org.apache.lucene.search.BooleanClause;
 import org.apache.lucene.search.FuzzyQuery;
 import org.apache.lucene.search.Query;
 import org.apache.lucene.search.QueryVisitor;
-import org.apache.lucene.search.spans.SpanQuery;
 import org.apache.lucene.util.automaton.ByteRunAutomaton;
 
 /**
@@ -48,7 +48,7 @@ final class MultiTermHighlighting {
   }
 
   /**
-   * Indicates if the the leaf query (from {@link QueryVisitor#visitLeaf(Query)}) is a type of query
+   * Indicates if the leaf query (from {@link QueryVisitor#visitLeaf(Query)}) is a type of query
    * that we can extract automata from.
    */
   public static boolean canExtractAutomataFromLeafQuery(Query query) {

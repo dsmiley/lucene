@@ -73,7 +73,7 @@ class SimpleTextPointsWriter extends PointsWriter {
   @Override
   public void writeField(FieldInfo fieldInfo, PointsReader reader) throws IOException {
 
-    PointValues values = reader.getValues(fieldInfo.name);
+    PointValues.PointTree values = reader.getValues(fieldInfo.name).getPointTree();
 
     BKDConfig config =
         new BKDConfig(
@@ -92,13 +92,14 @@ class SimpleTextPointsWriter extends PointsWriter {
             SimpleTextBKDWriter.DEFAULT_MAX_MB_SORT_IN_HEAP,
             values.size())) {
 
-      values.intersect(
+      values.visitDocValues(
           new IntersectVisitor() {
             @Override
             public void visit(int docID) {
               throw new IllegalStateException();
             }
 
+            @Override
             public void visit(int docID, byte[] packedValue) throws IOException {
               writer.add(packedValue, docID);
             }
@@ -155,14 +156,6 @@ class SimpleTextPointsWriter extends PointsWriter {
 
   private void write(IndexOutput out, String s) throws IOException {
     SimpleTextUtil.write(out, s, scratch);
-  }
-
-  private void writeInt(IndexOutput out, int x) throws IOException {
-    SimpleTextUtil.write(out, Integer.toString(x), scratch);
-  }
-
-  private void writeLong(IndexOutput out, long x) throws IOException {
-    SimpleTextUtil.write(out, Long.toString(x), scratch);
   }
 
   private void write(IndexOutput out, BytesRef b) throws IOException {

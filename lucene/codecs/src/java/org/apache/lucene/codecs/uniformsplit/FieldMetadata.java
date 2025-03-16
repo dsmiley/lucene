@@ -26,10 +26,8 @@ import org.apache.lucene.index.IndexOptions;
 import org.apache.lucene.index.TermsEnum;
 import org.apache.lucene.store.DataInput;
 import org.apache.lucene.store.DataOutput;
-import org.apache.lucene.util.Accountable;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.FixedBitSet;
-import org.apache.lucene.util.RamUsageEstimator;
 
 /**
  * Metadata and stats for one field in the index.
@@ -38,10 +36,7 @@ import org.apache.lucene.util.RamUsageEstimator;
  *
  * @lucene.experimental
  */
-public class FieldMetadata implements Accountable {
-
-  private static final long BASE_RAM_USAGE =
-      RamUsageEstimator.shallowSizeOfInstance(FieldMetadata.class);
+public class FieldMetadata {
 
   protected final FieldInfo fieldInfo;
   protected final boolean isMutable;
@@ -144,7 +139,9 @@ public class FieldMetadata implements Accountable {
     return isMutable ? docsSeen.cardinality() : docCount;
   }
 
-  /** @return The file pointer to the start of the first block of the field. */
+  /**
+   * @return The file pointer to the start of the first block of the field.
+   */
   public long getFirstBlockStartFP() {
     return firstBlockStartFP;
   }
@@ -155,7 +152,9 @@ public class FieldMetadata implements Accountable {
     this.firstBlockStartFP = firstBlockStartFP;
   }
 
-  /** @return The start file pointer for the last block of the field. */
+  /**
+   * @return The start file pointer for the last block of the field.
+   */
   public long getLastBlockStartFP() {
     return lastBlockStartFP;
   }
@@ -166,7 +165,9 @@ public class FieldMetadata implements Accountable {
     this.lastBlockStartFP = lastBlockStartFP;
   }
 
-  /** @return The file pointer to the start of the dictionary of the field. */
+  /**
+   * @return The file pointer to the start of the dictionary of the field.
+   */
   public long getDictionaryStartFP() {
     return dictionaryStartFP;
   }
@@ -184,11 +185,6 @@ public class FieldMetadata implements Accountable {
 
   public BytesRef getLastTerm() {
     return lastTerm;
-  }
-
-  @Override
-  public long ramBytesUsed() {
-    return BASE_RAM_USAGE + (docsSeen == null ? 0 : docsSeen.ramBytesUsed());
   }
 
   /** Reads/writes field metadata. */

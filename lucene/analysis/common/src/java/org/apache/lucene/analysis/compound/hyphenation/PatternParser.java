@@ -22,7 +22,6 @@ import javax.xml.parsers.SAXParserFactory;
 import org.xml.sax.Attributes;
 import org.xml.sax.InputSource;
 import org.xml.sax.SAXException;
-import org.xml.sax.SAXParseException;
 import org.xml.sax.XMLReader;
 import org.xml.sax.helpers.DefaultHandler;
 
@@ -143,7 +142,7 @@ public class PatternParser extends DefaultHandler {
         break;
       }
     }
-    token.append(chars.toString().substring(0, i));
+    token.append(chars, 0, i);
     // chars.delete(0,i);
     for (int countr = i; countr < chars.length(); countr++) {
       chars.setCharAt(countr - i, chars.charAt(countr));
@@ -173,8 +172,7 @@ public class PatternParser extends DefaultHandler {
     ArrayList<Object> res = new ArrayList<>();
     for (int i = 0; i < ex.size(); i++) {
       Object item = ex.get(i);
-      if (item instanceof String) {
-        String str = (String) item;
+      if (item instanceof String str) {
         StringBuilder buf = new StringBuilder();
         for (int j = 0; j < str.length(); j++) {
           char c = str.charAt(j);
@@ -315,10 +313,12 @@ public class PatternParser extends DefaultHandler {
     }
   }
 
-  /** @see org.xml.sax.ContentHandler#characters(char[], int, int) */
+  /**
+   * @see org.xml.sax.ContentHandler#characters(char[], int, int)
+   */
   @SuppressWarnings({"unchecked", "rawtypes"})
   @Override
-  public void characters(char ch[], int start, int length) {
+  public void characters(char[] ch, int start, int length) {
     StringBuilder chars = new StringBuilder(length);
     chars.append(ch, start, length);
     String word = readToken(chars);
@@ -341,24 +341,4 @@ public class PatternParser extends DefaultHandler {
       word = readToken(chars);
     }
   }
-
-  /** Returns a string of the location. */
-  private String getLocationString(SAXParseException ex) {
-    StringBuilder str = new StringBuilder();
-
-    String systemId = ex.getSystemId();
-    if (systemId != null) {
-      int index = systemId.lastIndexOf('/');
-      if (index != -1) {
-        systemId = systemId.substring(index + 1);
-      }
-      str.append(systemId);
-    }
-    str.append(':');
-    str.append(ex.getLineNumber());
-    str.append(':');
-    str.append(ex.getColumnNumber());
-
-    return str.toString();
-  } // getLocationString(SAXParseException):String
 }

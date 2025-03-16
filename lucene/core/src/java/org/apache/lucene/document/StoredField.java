@@ -17,12 +17,13 @@
 package org.apache.lucene.document;
 
 import org.apache.lucene.index.IndexReader; // javadocs
+import org.apache.lucene.index.StoredFieldDataInput;
 import org.apache.lucene.search.IndexSearcher; // javadocs
 import org.apache.lucene.util.BytesRef;
 
 /**
- * A field whose value is stored so that {@link IndexSearcher#doc} and {@link IndexReader#document
- * IndexReader.document()} will return the field and its value.
+ * A field whose value is stored so that {@link IndexSearcher#storedFields} and {@link
+ * IndexReader#storedFields} will return the field and its value.
  */
 public class StoredField extends Field {
 
@@ -103,6 +104,21 @@ public class StoredField extends Field {
    */
   public StoredField(String name, BytesRef value) {
     super(name, value, TYPE);
+  }
+
+  /**
+   * Create a stored-only field with the given data input value.
+   *
+   * @param name field name
+   * @param value BytesRef pointing to binary content (not copied)
+   * @throws IllegalArgumentException if the field name or value is null.
+   */
+  public StoredField(String name, StoredFieldDataInput value) {
+    super(name, TYPE);
+    if (value == null) {
+      throw new IllegalArgumentException("store field data input must not be null");
+    }
+    fieldsData = value;
   }
 
   /**

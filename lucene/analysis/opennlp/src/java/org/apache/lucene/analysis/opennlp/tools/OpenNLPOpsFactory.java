@@ -17,15 +17,12 @@
 
 package org.apache.lucene.analysis.opennlp.tools;
 
-import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.io.Reader;
-import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import opennlp.tools.chunker.ChunkerModel;
+import opennlp.tools.lemmatizer.DictionaryLemmatizer;
 import opennlp.tools.lemmatizer.LemmatizerModel;
 import opennlp.tools.namefind.TokenNameFinderModel;
 import opennlp.tools.postag.POSModel;
@@ -38,14 +35,17 @@ import org.apache.lucene.util.ResourceLoader;
  * thread-safe.
  */
 public class OpenNLPOpsFactory {
-  private static Map<String, SentenceModel> sentenceModels = new ConcurrentHashMap<>();
-  private static ConcurrentHashMap<String, TokenizerModel> tokenizerModels =
+  private static final Map<String, SentenceModel> sentenceModels = new ConcurrentHashMap<>();
+  private static final ConcurrentHashMap<String, TokenizerModel> tokenizerModels =
       new ConcurrentHashMap<>();
-  private static ConcurrentHashMap<String, POSModel> posTaggerModels = new ConcurrentHashMap<>();
-  private static ConcurrentHashMap<String, ChunkerModel> chunkerModels = new ConcurrentHashMap<>();
-  private static Map<String, TokenNameFinderModel> nerModels = new ConcurrentHashMap<>();
-  private static Map<String, LemmatizerModel> lemmatizerModels = new ConcurrentHashMap<>();
-  private static Map<String, String> lemmaDictionaries = new ConcurrentHashMap<>();
+  private static final ConcurrentHashMap<String, POSModel> posTaggerModels =
+      new ConcurrentHashMap<>();
+  private static final ConcurrentHashMap<String, ChunkerModel> chunkerModels =
+      new ConcurrentHashMap<>();
+  private static final Map<String, TokenNameFinderModel> nerModels = new ConcurrentHashMap<>();
+  private static final Map<String, LemmatizerModel> lemmatizerModels = new ConcurrentHashMap<>();
+  private static final Map<String, DictionaryLemmatizer> lemmaDictionaries =
+      new ConcurrentHashMap<>();
 
   public static NLPSentenceDetectorOp getSentenceDetector(String modelName) throws IOException {
     if (modelName != null) {
@@ -144,36 +144,25 @@ public class OpenNLPOpsFactory {
       throws IOException {
     assert dictionaryFile != null || lemmatizerModelFile != null
         : "At least one parameter must be non-null";
-    InputStream dictionaryInputStream = null;
+    DictionaryLemmatizer dictionaryLemmatizer = null;
     if (dictionaryFile != null) {
-      String dictionary = lemmaDictionaries.get(dictionaryFile);
-      dictionaryInputStream = new ByteArrayInputStream(dictionary.getBytes(StandardCharsets.UTF_8));
+      dictionaryLemmatizer = lemmaDictionaries.get(dictionaryFile);
     }
     LemmatizerModel lemmatizerModel =
         lemmatizerModelFile == null ? null : lemmatizerModels.get(lemmatizerModelFile);
-    return new NLPLemmatizerOp(dictionaryInputStream, lemmatizerModel);
+    return new NLPLemmatizerOp(dictionaryLemmatizer, lemmatizerModel);
   }
 
-  public static String getLemmatizerDictionary(String dictionaryFile, ResourceLoader loader)
-      throws IOException {
-    String dictionary = lemmaDictionaries.get(dictionaryFile);
-    if (dictionary == null) {
-      try (Reader reader =
-          new InputStreamReader(loader.openResource(dictionaryFile), StandardCharsets.UTF_8)) {
-        StringBuilder builder = new StringBuilder();
-        char[] chars = new char[8092];
-        int numRead = 0;
-        do {
-          numRead = reader.read(chars, 0, chars.length);
-          if (numRead > 0) {
-            builder.append(chars, 0, numRead);
-          }
-        } while (numRead > 0);
-        dictionary = builder.toString();
-        lemmaDictionaries.put(dictionaryFile, dictionary);
-      }
+  public static DictionaryLemmatizer getLemmatizerDictionary(
+      String dictionaryFile, ResourceLoader loader) throws IOException {
+    DictionaryLemmatizer dictionaryLemmatizer = lemmaDictionaries.get(dictionaryFile);
+    if (dictionaryLemmatizer == null) {
+      // TODO: OpenNLP's DictionaryLemmatizer hardcodes the target platform's system encoding,
+      // so it needs to match the encoding of the dictionary file.
+      dictionaryLemmatizer = new DictionaryLemmatizer(loader.openResource(dictionaryFile));
+      lemmaDictionaries.put(dictionaryFile, dictionaryLemmatizer);
     }
-    return dictionary;
+    return dictionaryLemmatizer;
   }
 
   public static LemmatizerModel getLemmatizerModel(String modelName, ResourceLoader loader)

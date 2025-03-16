@@ -26,7 +26,7 @@ configure(rootProject) {
   }
 
   dependencies {
-    javacc "net.java.dev.javacc:javacc:${scriptDepVersions['javacc']}"
+    javacc deps.javacc
   }
 
   task javacc() {
@@ -34,20 +34,6 @@ configure(rootProject) {
     group "generation"
 
     dependsOn allprojects.collect { prj -> prj.tasks.withType(JavaCCTask) }
-  }
-}
-
-/**
- * Utility function to read a file, apply changes to its content and write it back.
- */
-def modifyFile = { File path, Function<String, String> modify ->
-  Function<String, String> normalizeEols = { text -> text.replace("\r\n", "\n") }
-  modify = normalizeEols.andThen(modify).andThen(normalizeEols)
-
-  String original = path.getText("UTF-8")
-  String modified = modify.apply(original)
-  if (!original.equals(modified)) {
-    path.write(modified, "UTF-8")
   }
 }
 
@@ -100,76 +86,87 @@ def commonCleanups = { FileTree generatedFiles ->
   }
 }
 
-if (!skipLucene) {
-  configure(project(":lucene:queryparser")) {
-    task javaccParserClassic(type: JavaCCTask) {
-      description "Regenerate classic query parser from lucene/queryparser/classic/QueryParser.jj"
-      group "generation"
+configure(project(":lucene:queryparser")) {
+  task javaccParserClassicInternal(type: JavaCCTask) {
+    description "Regenerate classic query parser from lucene/queryparser/classic/QueryParser.jj"
+    group "generation"
 
-      javaccFile = file('src/java/org/apache/lucene/queryparser/classic/QueryParser.jj')
+    javaccFile = file('src/java/org/apache/lucene/queryparser/classic/QueryParser.jj')
 
-      afterGenerate << commonCleanups
-      afterGenerate << { FileTree generatedFiles ->
-        generatedFiles.matching { include "QueryParser.java" }.each { file ->
-          modifyFile(file, { text ->
-            text = text.replace(
-                "public QueryParser(CharStream ",
-                "protected QueryParser(CharStream ")
-            text = text.replace(
-                "public QueryParser(QueryParserTokenManager ",
-                "protected QueryParser(QueryParserTokenManager ")
-            text = text.replace(
-                "new java.util.ArrayList<int[]>",
-                "new java.util.ArrayList<>")
-            text = text.replace(
-                "final private LookaheadSuccess jj_ls =",
-                "static final private LookaheadSuccess jj_ls =")
-            return text
-          })
-        }
+    afterGenerate << commonCleanups
+    afterGenerate << { FileTree generatedFiles ->
+      generatedFiles.matching { include "QueryParser.java" }.each { file ->
+        modifyFile(file, { text ->
+          text = text.replace(
+              "public QueryParser(CharStream ",
+              "protected QueryParser(CharStream ")
+          text = text.replace(
+              "public QueryParser(QueryParserTokenManager ",
+              "protected QueryParser(QueryParserTokenManager ")
+          text = text.replace(
+              "new java.util.ArrayList<int[]>",
+              "new java.util.ArrayList<>")
+          text = text.replace(
+              "final private LookaheadSuccess jj_ls =",
+              "static final private LookaheadSuccess jj_ls =")
+          text = text.replace(
+              "public class QueryParser ",
+              '@SuppressWarnings({"unused","null"}) public class QueryParser ')
+          text = text.replace(
+              "final public Query TopLevelQuery(",
+              "@Override final public Query TopLevelQuery(")
+          text = text.replace(
+              "public void ReInit(CharStream ",
+              "@Override public void ReInit(CharStream ")
+          return text
+        })
       }
     }
+  }
 
-    task javaccParserSurround(type: JavaCCTask) {
-      description "Regenerate surround query parser from lucene/queryparser/surround/parser/QueryParser.jj"
-      group "generation"
+  task javaccParserSurroundInternal(type: JavaCCTask) {
+    description "Regenerate surround query parser from lucene/queryparser/surround/parser/QueryParser.jj"
+    group "generation"
 
-      javaccFile = file('src/java/org/apache/lucene/queryparser/surround/parser/QueryParser.jj')
+    javaccFile = file('src/java/org/apache/lucene/queryparser/surround/parser/QueryParser.jj')
 
-      afterGenerate << commonCleanups
-      afterGenerate << { FileTree generatedFiles ->
-        generatedFiles.matching { include "QueryParser.java" }.each { file ->
-          modifyFile(file, { text ->
-            text = text.replace(
-                "import org.apache.lucene.analysis.TokenStream;",
-                "")
-            text = text.replace(
-                "new java.util.ArrayList<int[]>",
-                "new java.util.ArrayList<>")
-            return text
-          })
-        }
+    afterGenerate << commonCleanups
+    afterGenerate << { FileTree generatedFiles ->
+      generatedFiles.matching { include "QueryParser.java" }.each { file ->
+        modifyFile(file, { text ->
+          text = text.replace(
+              "import org.apache.lucene.analysis.TokenStream;",
+              "")
+          text = text.replace(
+              "new java.util.ArrayList<int[]>",
+              "new java.util.ArrayList<>")
+          text = text.replace(
+              "public class QueryParser ",
+              '@SuppressWarnings({"unused","null"}) public class QueryParser ')
+          return text
+        })
       }
     }
+  }
 
-    task javaccParserFlexible(type: JavaCCTask) {
-      description "Regenerate Flexible query parser from queryparser/flexible/standard/parser/StandardSyntaxParser.jj"
-      group "generation"
+  task javaccParserFlexibleInternal(type: JavaCCTask) {
+    description "Regenerate flexible query parser from queryparser/flexible/standard/parser/StandardSyntaxParser.jj"
+    group "generation"
 
-      javaccFile = file('src/java/org/apache/lucene/queryparser/flexible/standard/parser/StandardSyntaxParser.jj')
+    javaccFile = file('src/java/org/apache/lucene/queryparser/flexible/standard/parser/StandardSyntaxParser.jj')
 
-      afterGenerate << commonCleanups
-      afterGenerate << { FileTree generatedFiles ->
-        generatedFiles.matching { include "ParseException.java" }.each { file ->
-          modifyFile(file, { text ->
-            // Modify constructor.
-            text = text.replace(
-                "class ParseException extends Exception",
-                "class ParseException extends QueryNodeParseException")
+    afterGenerate << commonCleanups
+    afterGenerate << { FileTree generatedFiles ->
+      generatedFiles.matching { include "ParseException.java" }.each { file ->
+        modifyFile(file, { text ->
+          // Modify constructor.
+          text = text.replace(
+              "class ParseException extends Exception",
+              "class ParseException extends QueryNodeParseException")
 
-            // Modify imports.
-            text = text.replace(
-                "package org.apache.lucene.queryparser.flexible.standard.parser;", '''\
+          // Modify imports.
+          text = text.replace(
+              "package org.apache.lucene.queryparser.flexible.standard.parser;", '''\
             package org.apache.lucene.queryparser.flexible.standard.parser;
   
             import org.apache.lucene.queryparser.flexible.messages.*;
@@ -177,9 +174,9 @@ if (!skipLucene) {
             import org.apache.lucene.queryparser.flexible.core.messages.*;
             ''')
 
-            // Modify constructors and code bits
-            text = text.replaceAll(
-                /(?s)[ ]*public ParseException\(Token currentTokenVal[^}]+[}]/, '''\
+          // Modify constructors and code bits
+          text = text.replaceAll(
+              /(?s)[ ]*public ParseException\(Token currentTokenVal[^}]+[}]/, '''\
             public ParseException(Token currentTokenVal,
               int[][] expectedTokenSequencesVal, String[] tokenImageVal) 
             {
@@ -191,82 +188,91 @@ if (!skipLucene) {
             }
             ''')
 
-            text = text.replaceAll(
-                /(?s)[ ]*public ParseException\(String message\)[^}]+[}]/, '''\
+          text = text.replaceAll(
+              /(?s)[ ]*public ParseException\(String message\)[^}]+[}]/, '''\
             public ParseException(Message message) 
             {
               super(message);
             }
             ''')
 
-            text = text.replaceAll(
-                /(?s)[ ]*public ParseException\(\)[^}]+[}]/, '''\
+          text = text.replaceAll(
+              /(?s)[ ]*public ParseException\(\)[^}]+[}]/, '''\
             public ParseException() 
             {
               super(new MessageImpl(QueryParserMessages.INVALID_SYNTAX, "Error"));
             }
             ''')
-            return text
-          })
-        }
+          return text
+        })
+      }
 
-        generatedFiles.matching { include "StandardSyntaxParser.java" }.each { file ->
-          modifyFile(file, { text ->
-            // Remove redundant cast
-            text = text.replace(
-                "new java.util.ArrayList<int[]>",
-                "new java.util.ArrayList<>")
-            text = text.replace(
-                "new ArrayList<QueryNode>()",
-                "new ArrayList<>()")
-            text = text.replace(
-                "Collections.<QueryNode> singletonList",
-                "Collections.singletonList")
-            return text
-          })
-        }
+      generatedFiles.matching { include "StandardSyntaxParser.java" }.each { file ->
+        modifyFile(file, { text ->
+          // Remove redundant cast
+          text = text.replace(
+              "new java.util.ArrayList<int[]>",
+              "new java.util.ArrayList<>")
+          text = text.replace(
+              "new ArrayList<QueryNode>()",
+              "new ArrayList<>()")
+          text = text.replace(
+              "Collections.<QueryNode> singletonList",
+              "Collections.singletonList")
+          text = text.replace(
+              "public class StandardSyntaxParser ",
+              '@SuppressWarnings({"unused","null"}) public class StandardSyntaxParser ')
+          return text
+        })
       }
     }
-
-    task regenerate() {
-      description "Regenerate any generated sources"
-      group "generation"
-
-      // Run regeneration tasks.
-      dependsOn javaccParserClassic, javaccParserSurround, javaccParserFlexible
-
-      // Clean up and reformat the generated sources after generation.
-      dependsOn "tidy"
-    }
-
-    // Make sure tidy runs after generation, if they're defined.
-    tasks.matching { it.name == "tidy" }.configureEach {
-      mustRunAfter javaccParserClassic, javaccParserSurround, javaccParserFlexible
-    }
-
-    task javacc() {
-      description "Regenerate query parsers (javacc syntax definitions)."
-      group "generation"
-
-      dependsOn javaccParserClassic
-      dependsOn javaccParserSurround
-      dependsOn javaccParserFlexible
-    }
   }
+
+  task javacc() {
+    description "Regenerate query parsers (javacc syntax definitions)."
+    group "generation"
+
+    def extraConfig = [
+        andThenTasks: ["spotlessJava", "spotlessJavaApply"],
+        mustRunBefore: [ "compileJava" ]
+    ]
+
+    dependsOn wrapWithPersistentChecksums(javaccParserClassicInternal, extraConfig),
+        wrapWithPersistentChecksums(javaccParserSurroundInternal, extraConfig),
+        wrapWithPersistentChecksums(javaccParserFlexibleInternal, extraConfig)
+  }
+
+  regenerate.dependsOn javacc
 }
 
 // We always regenerate, no need to declare outputs.
 class JavaCCTask extends DefaultTask {
-  @Input
+  @InputFile
   File javaccFile
 
   /**
    * Apply closures to all generated files before they're copied back
    * to mainline code.
    */
-  @Optional
-  @Input
+  // A subtle bug here is that this makes it not an input... should be a list of replacements instead?
+  @Internal
   List<Closure<FileTree>> afterGenerate = new ArrayList<>()
+
+  @OutputFiles
+  List<File> getGeneratedSources() {
+    // Return the list of generated files.
+    def baseDir = javaccFile.parentFile
+    def baseName = javaccFile.name.replace(".jj", "")
+
+    return [
+        project.file("${baseDir}/${baseName}.java"),
+        project.file("${baseDir}/${baseName}Constants.java"),
+        project.file("${baseDir}/${baseName}TokenManager.java"),
+        project.file("${baseDir}/ParseException.java"),
+        project.file("${baseDir}/Token.java"),
+        project.file("${baseDir}/TokenMgrError.java")
+    ]
+  }
 
   JavaCCTask() {
     dependsOn(project.rootProject.configurations.javacc)
@@ -285,7 +291,7 @@ class JavaCCTask extends DefaultTask {
     project.delete project.fileTree(tempDir, { include: "**/*.java" })
 
     def targetDir = javaccFile.parentFile
-    logger.lifecycle("Regenerating JavaCC:\n  from: ${javaccFile}\n    to: ${targetDir}")
+    logger.lifecycle("Recompiling JavaCC: ${project.rootDir.relativePath(javaccFile)}")
 
     def output = new ByteArrayOutputStream()
     def result = project.javaexec {

@@ -20,11 +20,12 @@ import java.io.IOException;
 import java.io.StreamTokenizer;
 import java.io.StringReader;
 import java.lang.reflect.Constructor;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
 import org.apache.lucene.analysis.Analyzer;
+import org.apache.lucene.analysis.CharArraySet;
 import org.apache.lucene.benchmark.byTask.PerfRunData;
 import org.apache.lucene.benchmark.byTask.utils.AnalyzerFactory;
-import org.apache.lucene.util.Version;
 
 /**
  * Create a new {@link org.apache.lucene.analysis.Analyzer} and set it in the getRunData() for use
@@ -41,15 +42,13 @@ public class NewAnalyzerTask extends PerfTask {
 
   public static final Analyzer createAnalyzer(String className) throws Exception {
     final Class<? extends Analyzer> clazz = Class.forName(className).asSubclass(Analyzer.class);
-    try {
-      // first try to use a ctor with version parameter (needed for many new Analyzers that have no
-      // default one anymore
-      Constructor<? extends Analyzer> cnstr = clazz.getConstructor(Version.class);
-      return cnstr.newInstance(Version.LATEST);
-    } catch (NoSuchMethodException nsme) {
-      // otherwise use default ctor
-      return clazz.getConstructor().newInstance();
+    Constructor<? extends Analyzer> cnstr;
+    if (className.equals("org.apache.lucene.analysis.core.StopAnalyzer")) {
+      cnstr = clazz.getConstructor(CharArraySet.class);
+      return cnstr.newInstance(CharArraySet.EMPTY_SET);
     }
+    cnstr = clazz.getConstructor();
+    return cnstr.newInstance();
   }
 
   @Override
@@ -80,7 +79,9 @@ public class NewAnalyzerTask extends PerfTask {
             String coreClassName = "org.apache.lucene.analysis.core." + analyzerName;
             analyzer = createAnalyzer(coreClassName);
             analyzerName = coreClassName;
-          } catch (ClassNotFoundException e) {
+          } catch (
+              @SuppressWarnings("unused")
+              ClassNotFoundException e) {
             // If not a core analyzer, try the base analysis package
             analyzerName = "org.apache.lucene.analysis." + analyzerName;
             analyzer = createAnalyzer(analyzerName);

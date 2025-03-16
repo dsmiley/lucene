@@ -17,6 +17,7 @@
 package org.apache.lucene.util;
 
 import java.util.Random;
+import org.apache.lucene.tests.util.LuceneTestCase;
 import org.apache.lucene.util.SetOnce.AlreadySetException;
 import org.junit.Test;
 
@@ -31,15 +32,20 @@ public class TestSetOnce extends LuceneTestCase {
       RAND = new Random(random.nextLong());
     }
 
+    @SuppressForbidden(reason = "Thread sleep")
     @Override
     public void run() {
       try {
         sleep(RAND.nextInt(10)); // sleep for a short time
         set.set(Integer.valueOf(getName().substring(2)));
         success = true;
-      } catch (InterruptedException e) {
+      } catch (
+          @SuppressWarnings("unused")
+          InterruptedException e) {
         // ignore
-      } catch (RuntimeException e) {
+      } catch (
+          @SuppressWarnings("unused")
+          RuntimeException e) {
         // TODO: change exception type
         // expected.
         success = false;

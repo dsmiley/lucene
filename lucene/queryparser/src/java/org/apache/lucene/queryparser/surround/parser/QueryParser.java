@@ -46,7 +46,7 @@ import org.apache.lucene.queryparser.charstream.FastCharStream;
  *  to two terms may appear between a and b.  </p>
  */
 
-public class QueryParser implements QueryParserConstants {
+@SuppressWarnings({"unused","null"}) public class QueryParser implements QueryParserConstants {
   static final int MINIMUM_PREFIX_LENGTH = 3;
   static final int MINIMUM_CHARS_IN_TRUNC = 3;
   static final String TRUNCATION_ERROR_MESSAGE = "Too unrestrictive truncation: ";
@@ -151,7 +151,7 @@ public class QueryParser implements QueryParserConstants {
   }
 
   protected SrndQuery getTruncQuery(String truncated) {
-    return new SrndTruncQuery(truncated, TRUNCATOR, ANY_CHAR);
+    return new SrndTruncQuery(truncated);
   }
 
   final public SrndQuery TopSrndQuery() throws ParseException {SrndQuery q;
@@ -603,8 +603,13 @@ float f;
   }
 
   @SuppressWarnings("serial")
-  static private final class LookaheadSuccess extends java.lang.Error { }
-  final private LookaheadSuccess jj_ls = new LookaheadSuccess();
+  static private final class LookaheadSuccess extends java.lang.Error {
+    @Override
+    public Throwable fillInStackTrace() {
+      return this;
+    }
+  }
+  static private final LookaheadSuccess jj_ls = new LookaheadSuccess();
   private boolean jj_scan_token(int kind) {
      if (jj_scanpos == jj_lastpos) {
        jj_la--;
@@ -731,7 +736,6 @@ float f;
      return new ParseException(token, exptokseq, tokenImage);
   }
 
-  private int trace_indent = 0;
   private boolean trace_enabled;
 
 /** Trace enabled. */

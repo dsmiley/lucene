@@ -27,6 +27,7 @@ import java.util.Map;
 import java.util.NavigableSet;
 import java.util.TreeSet;
 import org.apache.lucene.search.FieldComparator;
+import org.apache.lucene.search.Pruning;
 import org.apache.lucene.search.Sort;
 import org.apache.lucene.search.SortField;
 
@@ -143,9 +144,9 @@ public class SearchGroup<T> {
       if (_other instanceof MergedGroup) {
         MergedGroup<?> other = (MergedGroup<?>) _other;
         if (groupValue == null) {
-          return other == null;
+          return other.groupValue == null;
         } else {
-          return groupValue.equals(other);
+          return groupValue.equals(other.groupValue);
         }
       } else {
         return false;
@@ -176,7 +177,7 @@ public class SearchGroup<T> {
       reversed = new int[sortFields.length];
       for (int compIDX = 0; compIDX < sortFields.length; compIDX++) {
         final SortField sortField = sortFields[compIDX];
-        comparators[compIDX] = sortField.getComparator(1, compIDX);
+        comparators[compIDX] = sortField.getComparator(1, Pruning.NONE);
         reversed[compIDX] = sortField.getReverse() ? -1 : 1;
       }
     }

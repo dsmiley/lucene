@@ -67,6 +67,7 @@ public class SimpleMergedSegmentWarmer implements IndexReaderWarmer {
           case SORTED_SET:
             reader.getSortedSetDocValues(info.name);
             break;
+          case NONE:
           default:
             assert false; // unknown dv type
         }
@@ -74,8 +75,8 @@ public class SimpleMergedSegmentWarmer implements IndexReaderWarmer {
       }
     }
 
-    reader.document(0);
-    reader.getTermVectors(0);
+    reader.storedFields().document(0);
+    reader.termVectors().get(0);
 
     if (infoStream.isEnabled("SMSW")) {
       infoStream.message(

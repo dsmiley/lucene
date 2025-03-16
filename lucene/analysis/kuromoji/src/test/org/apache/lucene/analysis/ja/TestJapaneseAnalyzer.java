@@ -19,8 +19,8 @@ package org.apache.lucene.analysis.ja;
 import java.io.IOException;
 import java.util.Random;
 import org.apache.lucene.analysis.Analyzer;
-import org.apache.lucene.analysis.BaseTokenStreamTestCase;
 import org.apache.lucene.analysis.ja.JapaneseTokenizer.Mode;
+import org.apache.lucene.tests.analysis.BaseTokenStreamTestCase;
 
 /** Test Kuromoji Japanese morphological analyzer */
 public class TestJapaneseAnalyzer extends BaseTokenStreamTestCase {
@@ -143,6 +143,22 @@ public class TestJapaneseAnalyzer extends BaseTokenStreamTestCase {
         new int[] {0, 1, 2},
         new int[] {1, 2, 4},
         4);
+    a.close();
+  }
+
+  public void testCharWidthNormalization() throws Exception {
+    final Analyzer a =
+        new JapaneseAnalyzer(
+            TestJapaneseTokenizer.readDict(),
+            Mode.SEARCH,
+            JapaneseAnalyzer.getDefaultStopSet(),
+            JapaneseAnalyzer.getDefaultStopTags());
+    assertTokenStreamContents(
+        a.tokenStream("foo", "新橋６－２０－１"),
+        new String[] {"新橋", "6", "20", "1"},
+        new int[] {0, 2, 4, 7},
+        new int[] {2, 3, 6, 8},
+        8);
     a.close();
   }
 

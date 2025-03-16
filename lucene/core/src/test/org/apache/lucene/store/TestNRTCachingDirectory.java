@@ -21,19 +21,20 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import org.apache.lucene.analysis.Analyzer;
-import org.apache.lucene.analysis.MockAnalyzer;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.index.DirectoryReader;
 import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.IndexWriterConfig;
-import org.apache.lucene.index.RandomIndexWriter;
 import org.apache.lucene.index.Term;
 import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.TermQuery;
-import org.apache.lucene.search.TopDocs;
+import org.apache.lucene.tests.analysis.MockAnalyzer;
+import org.apache.lucene.tests.index.RandomIndexWriter;
+import org.apache.lucene.tests.store.BaseDirectoryTestCase;
+import org.apache.lucene.tests.util.LineFileDocs;
+import org.apache.lucene.tests.util.TestUtil;
 import org.apache.lucene.util.BytesRef;
-import org.apache.lucene.util.LineFileDocs;
-import org.apache.lucene.util.TestUtil;
+import org.junit.Assert;
 
 public class TestNRTCachingDirectory extends BaseDirectoryTestCase {
 
@@ -82,7 +83,7 @@ public class TestNRTCachingDirectory extends BaseDirectoryTestCase {
         final IndexSearcher s = newSearcher(r);
         // Just make sure search can run; we can't assert
         // totHits since it could be 0
-        TopDocs hits = s.search(new TermQuery(new Term("body", "the")), 10);
+        s.search(new TermQuery(new Term("body", "the")), 10);
         // System.out.println("tot hits " + hits.totalHits);
       }
     }
@@ -166,5 +167,28 @@ public class TestNRTCachingDirectory extends BaseDirectoryTestCase {
     nrtDir2.createTempOutput("bar", "baz", ioContext).close();
 
     dir.close();
+  }
+
+  public void testCacheSizeAfterDelete() throws IOException {
+    IOContext ioContext = new IOContext(new FlushInfo(3, 40));
+    String fn = "f1";
+    try (Directory dir = newDirectory();
+        NRTCachingDirectory nrt = new NRTCachingDirectory(dir, 1, 1); ) {
+      // deletes a closed file
+      try (IndexOutput out = nrt.createOutput(fn, ioContext)) {
+        for (int i = 0; i < 10; i++) out.writeInt(i);
+      }
+      Assert.assertEquals(40, nrt.ramBytesUsed());
+      nrt.deleteFile(fn);
+      Assert.assertEquals(0, nrt.ramBytesUsed());
+
+      // Deletes an unclosed file (write before and after deletion
+      try (IndexOutput out = nrt.createOutput(fn, ioContext)) {
+        for (int i = 0; i < 10; i++) out.writeInt(i);
+        nrt.deleteFile(fn);
+        for (int i = 0; i < 10; i++) out.writeInt(i);
+      }
+      Assert.assertEquals(0, nrt.ramBytesUsed());
+    }
   }
 }

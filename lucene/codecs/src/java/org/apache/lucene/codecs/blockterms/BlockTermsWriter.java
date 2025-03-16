@@ -16,7 +16,6 @@
  */
 package org.apache.lucene.codecs.blockterms;
 
-import java.io.Closeable;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
@@ -52,7 +51,7 @@ import org.apache.lucene.util.IOUtils;
  *
  * @lucene.experimental
  */
-public class BlockTermsWriter extends FieldsConsumer implements Closeable {
+public class BlockTermsWriter extends FieldsConsumer {
 
   static final String CODEC_NAME = "BlockTermsWriter";
 
@@ -70,28 +69,15 @@ public class BlockTermsWriter extends FieldsConsumer implements Closeable {
   private final TermsIndexWriterBase termsIndexWriter;
   private final int maxDoc;
 
-  private static class FieldMetaData {
-    public final FieldInfo fieldInfo;
-    public final long numTerms;
-    public final long termsStartPointer;
-    public final long sumTotalTermFreq;
-    public final long sumDocFreq;
-    public final int docCount;
-
-    public FieldMetaData(
-        FieldInfo fieldInfo,
-        long numTerms,
-        long termsStartPointer,
-        long sumTotalTermFreq,
-        long sumDocFreq,
-        int docCount) {
+  private record FieldMetaData(
+      FieldInfo fieldInfo,
+      long numTerms,
+      long termsStartPointer,
+      long sumTotalTermFreq,
+      long sumDocFreq,
+      int docCount) {
+    private FieldMetaData {
       assert numTerms > 0;
-      this.fieldInfo = fieldInfo;
-      this.termsStartPointer = termsStartPointer;
-      this.numTerms = numTerms;
-      this.sumTotalTermFreq = sumTotalTermFreq;
-      this.sumDocFreq = sumDocFreq;
-      this.docCount = docCount;
     }
   }
 

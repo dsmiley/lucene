@@ -16,6 +16,8 @@
  */
 package org.apache.lucene.search.suggest.fst;
 
+import static org.apache.lucene.util.fst.FST.readMetadata;
+
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -68,13 +70,13 @@ import org.apache.lucene.util.fst.NoOutputs;
  * @see FSTCompletion
  * @lucene.experimental
  */
-public class FSTCompletionLookup extends Lookup implements Accountable {
+public class FSTCompletionLookup extends Lookup {
   /**
    * An invalid bucket count if we're creating an object of this class from an existing FST.
    *
    * @see #FSTCompletionLookup(Directory, String, FSTCompletion, boolean)
    */
-  private static int INVALID_BUCKETS_COUNT = -1;
+  private static final int INVALID_BUCKETS_COUNT = -1;
 
   /**
    * Shared tail length for conflating in the created automaton. Setting this to larger values
@@ -98,7 +100,7 @@ public class FSTCompletionLookup extends Lookup implements Accountable {
   private FSTCompletion normalCompletion;
 
   /** Number of entries the lookup was built with */
-  private long count = 0;
+  private volatile long count = 0;
 
   /** This constructor should only be used to read a previously saved suggester. */
   public FSTCompletionLookup() {
@@ -171,7 +173,6 @@ public class FSTCompletionLookup extends Lookup implements Accountable {
 
     // Push floats up front before sequences to sort them. For now, assume they are non-negative.
     // If negative floats are allowed some trickery needs to be done to find their byte order.
-    count = 0;
     try {
       byte[] buffer = new byte[0];
       ByteArrayDataOutput output = new ByteArrayDataOutput(buffer);
@@ -179,11 +180,13 @@ public class FSTCompletionLookup extends Lookup implements Accountable {
       int inputLineCount = 0;
       while ((spare = iterator.next()) != null) {
         if (spare.length + 4 >= buffer.length) {
-          buffer = ArrayUtil.grow(buffer, spare.length + 4);
+          buffer = ArrayUtil.growNoCopy(buffer, spare.length + 4);
         }
 
         output.reset(buffer);
-        output.writeInt(encodeWeight(iterator.weight()));
+        final int encodedWeight = encodeWeight(iterator.weight());
+        // write bytes for comparing in lexicographically order
+        output.writeInt(Integer.reverseBytes(encodedWeight));
         output.writeBytes(spare.bytes, spare.offset, spare.length);
         writer.write(buffer, 0, output.getPosition());
         inputLineCount++;
@@ -201,13 +204,13 @@ public class FSTCompletionLookup extends Lookup implements Accountable {
 
       reader =
           new OfflineSorter.ByteSequencesReader(
-              tempDir.openChecksumInput(tempSortedFileName, IOContext.READONCE),
-              tempSortedFileName);
+              tempDir.openChecksumInput(tempSortedFileName), tempSortedFileName);
       long line = 0;
       int previousBucket = 0;
       int previousScore = 0;
       ByteArrayDataInput input = new ByteArrayDataInput();
       BytesRef tmp2 = new BytesRef();
+      long newCount = 0;
       while (true) {
         BytesRef scratch = reader.next();
         if (scratch == null) {
@@ -232,13 +235,14 @@ public class FSTCompletionLookup extends Lookup implements Accountable {
         builder.add(tmp2, bucket);
 
         line++;
-        count++;
+        newCount++;
       }
 
       // The two FSTCompletions share the same automaton.
       this.higherWeightsCompletion = builder.build();
       this.normalCompletion =
           new FSTCompletion(higherWeightsCompletion.getFST(), false, exactMatchFirst);
+      this.count = newCount;
 
     } finally {
       IOUtils.closeWhileHandlingException(reader, writer, externalSorter);
@@ -299,7 +303,7 @@ public class FSTCompletionLookup extends Lookup implements Accountable {
   public synchronized boolean load(DataInput input) throws IOException {
     count = input.readVLong();
     this.higherWeightsCompletion =
-        new FSTCompletion(new FST<>(input, input, NoOutputs.getSingleton()));
+        new FSTCompletion(new FST<>(readMetadata(input, NoOutputs.getSingleton()), input));
     this.normalCompletion =
         new FSTCompletion(higherWeightsCompletion.getFST(), false, exactMatchFirst);
     return true;

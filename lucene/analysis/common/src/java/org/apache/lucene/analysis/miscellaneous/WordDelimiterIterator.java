@@ -40,16 +40,18 @@ public final class WordDelimiterIterator {
 
   public static final byte[] DEFAULT_WORD_DELIM_TABLE;
 
-  char text[];
+  char[] text;
   int length;
 
   /** start position of text, excluding leading delimiters */
   int startBounds;
+
   /** end position of text, excluding trailing delimiters */
   int endBounds;
 
   /** Beginning of subword */
   int current;
+
   /** End of subword */
   int end;
 
@@ -192,7 +194,7 @@ public final class WordDelimiterIterator {
 
     int type = charType(text[current]);
     switch (type) {
-        // return ALPHA word type for both lower and upper
+      // return ALPHA word type for both lower and upper
       case LOWER:
       case UPPER:
         return ALPHA;
@@ -207,7 +209,7 @@ public final class WordDelimiterIterator {
    * @param text New text
    * @param length length of the text
    */
-  void setText(char text[], int length) {
+  void setText(char[] text, int length) {
     this.text = text;
     this.length = this.endBounds = length;
     current = startBounds = end = 0;
@@ -330,27 +332,27 @@ public final class WordDelimiterIterator {
       case Character.OTHER_NUMBER:
         return DIGIT;
 
-        // case Character.SPACE_SEPARATOR:
-        // case Character.LINE_SEPARATOR:
-        // case Character.PARAGRAPH_SEPARATOR:
-        // case Character.CONTROL:
-        // case Character.FORMAT:
-        // case Character.PRIVATE_USE:
+      // case Character.SPACE_SEPARATOR:
+      // case Character.LINE_SEPARATOR:
+      // case Character.PARAGRAPH_SEPARATOR:
+      // case Character.CONTROL:
+      // case Character.FORMAT:
+      // case Character.PRIVATE_USE:
 
       case Character.SURROGATE: // prevent splitting
         return ALPHA | DIGIT;
 
-        // case Character.DASH_PUNCTUATION:
-        // case Character.START_PUNCTUATION:
-        // case Character.END_PUNCTUATION:
-        // case Character.CONNECTOR_PUNCTUATION:
-        // case Character.OTHER_PUNCTUATION:
-        // case Character.MATH_SYMBOL:
-        // case Character.CURRENCY_SYMBOL:
-        // case Character.MODIFIER_SYMBOL:
-        // case Character.OTHER_SYMBOL:
-        // case Character.INITIAL_QUOTE_PUNCTUATION:
-        // case Character.FINAL_QUOTE_PUNCTUATION:
+      // case Character.DASH_PUNCTUATION:
+      // case Character.START_PUNCTUATION:
+      // case Character.END_PUNCTUATION:
+      // case Character.CONNECTOR_PUNCTUATION:
+      // case Character.OTHER_PUNCTUATION:
+      // case Character.MATH_SYMBOL:
+      // case Character.CURRENCY_SYMBOL:
+      // case Character.MODIFIER_SYMBOL:
+      // case Character.OTHER_SYMBOL:
+      // case Character.INITIAL_QUOTE_PUNCTUATION:
+      // case Character.FINAL_QUOTE_PUNCTUATION:
 
       default:
         return SUBWORD_DELIM;

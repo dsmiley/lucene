@@ -16,15 +16,16 @@
  */
 package org.apache.lucene.codecs.lucene90.compressing;
 
+import static org.apache.lucene.search.DocIdSetIterator.NO_MORE_DOCS;
+
 import java.io.IOException;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Deque;
 import java.util.Iterator;
 import java.util.List;
-import java.util.SortedSet;
-import java.util.TreeSet;
 import org.apache.lucene.codecs.CodecUtil;
 import org.apache.lucene.codecs.TermVectorsReader;
 import org.apache.lucene.codecs.TermVectorsWriter;
@@ -32,12 +33,14 @@ import org.apache.lucene.codecs.compressing.CompressionMode;
 import org.apache.lucene.codecs.compressing.Compressor;
 import org.apache.lucene.codecs.compressing.MatchingReaders;
 import org.apache.lucene.index.CorruptIndexException;
+import org.apache.lucene.index.DocIDMerger;
 import org.apache.lucene.index.FieldInfo;
-import org.apache.lucene.index.FieldInfos;
 import org.apache.lucene.index.Fields;
 import org.apache.lucene.index.IndexFileNames;
 import org.apache.lucene.index.MergeState;
 import org.apache.lucene.index.SegmentInfo;
+import org.apache.lucene.internal.hppc.IntHashSet;
+import org.apache.lucene.store.ByteBuffersDataInput;
 import org.apache.lucene.store.ByteBuffersDataOutput;
 import org.apache.lucene.store.DataInput;
 import org.apache.lucene.store.Directory;
@@ -46,11 +49,11 @@ import org.apache.lucene.store.IndexInput;
 import org.apache.lucene.store.IndexOutput;
 import org.apache.lucene.util.Accountable;
 import org.apache.lucene.util.ArrayUtil;
-import org.apache.lucene.util.Bits;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.IOUtils;
 import org.apache.lucene.util.StringHelper;
 import org.apache.lucene.util.packed.BlockPackedWriter;
+import org.apache.lucene.util.packed.DirectWriter;
 import org.apache.lucene.util.packed.PackedInts;
 
 /**
@@ -59,9 +62,6 @@ import org.apache.lucene.util.packed.PackedInts;
  * @lucene.experimental
  */
 public final class Lucene90CompressingTermVectorsWriter extends TermVectorsWriter {
-
-  // hard limit on the maximum number of documents per chunk
-  static final int MAX_DOCUMENTS_PER_CHUNK = 128;
 
   static final String VECTORS_EXTENSION = "tvd";
   static final String VECTORS_INDEX_EXTENSION = "tvx";
@@ -77,7 +77,7 @@ public final class Lucene90CompressingTermVectorsWriter extends TermVectorsWrite
   static final int POSITIONS = 0x01;
   static final int OFFSETS = 0x02;
   static final int PAYLOADS = 0x04;
-  static final int FLAGS_BITS = PackedInts.bitsRequired(POSITIONS | OFFSETS | PAYLOADS);
+  static final int FLAGS_BITS = DirectWriter.bitsRequired(POSITIONS | OFFSETS | PAYLOADS);
 
   private final String segment;
   private FieldsIndexWriter indexWriter;
@@ -87,8 +87,9 @@ public final class Lucene90CompressingTermVectorsWriter extends TermVectorsWrite
   private final Compressor compressor;
   private final int chunkSize;
 
+  private long numChunks; // number of chunks
   private long numDirtyChunks; // number of incomplete compressed blocks written
-  private long numDirtyDocs; // cumulative number of missing docs in incomplete chunks
+  private long numDirtyDocs; // cumulative number of docs in incomplete chunks
 
   /** a pending doc */
   private class DocData {
@@ -224,6 +225,8 @@ public final class Lucene90CompressingTermVectorsWriter extends TermVectorsWrite
   private final ByteBuffersDataOutput termSuffixes; // buffered term suffixes
   private final ByteBuffersDataOutput payloadBytes; // buffered term payloads
   private final BlockPackedWriter writer;
+  private final int maxDocsPerChunk; // hard limit on number of docs per chunk
+  private final ByteBuffersDataOutput scratchBuffer = ByteBuffersDataOutput.newResettableInstance();
 
   /** Sole constructor. */
   Lucene90CompressingTermVectorsWriter(
@@ -234,6 +237,7 @@ public final class Lucene90CompressingTermVectorsWriter extends TermVectorsWrite
       String formatName,
       CompressionMode compressionMode,
       int chunkSize,
+      int maxDocsPerChunk,
       int blockShift)
       throws IOException {
     assert directory != null;
@@ -241,6 +245,7 @@ public final class Lucene90CompressingTermVectorsWriter extends TermVectorsWrite
     this.compressionMode = compressionMode;
     this.compressor = compressionMode.newCompressor();
     this.chunkSize = chunkSize;
+    this.maxDocsPerChunk = maxDocsPerChunk;
 
     numDocs = 0;
     pendingDocs = new ArrayDeque<>();
@@ -322,7 +327,7 @@ public final class Lucene90CompressingTermVectorsWriter extends TermVectorsWrite
     payloadBytes.reset();
     ++numDocs;
     if (triggerFlush()) {
-      flush();
+      flush(false);
     }
     curDoc = null;
   }
@@ -373,19 +378,25 @@ public final class Lucene90CompressingTermVectorsWriter extends TermVectorsWrite
   }
 
   private boolean triggerFlush() {
-    return termSuffixes.size() >= chunkSize || pendingDocs.size() >= MAX_DOCUMENTS_PER_CHUNK;
+    return termSuffixes.size() >= chunkSize || pendingDocs.size() >= maxDocsPerChunk;
   }
 
-  private void flush() throws IOException {
+  private void flush(boolean force) throws IOException {
+    assert force != triggerFlush();
     final int chunkDocs = pendingDocs.size();
     assert chunkDocs > 0 : chunkDocs;
-
+    numChunks++;
+    if (force) {
+      numDirtyChunks++; // incomplete: we had to force this flush
+      numDirtyDocs += pendingDocs.size();
+    }
     // write the index file
     indexWriter.writeIndex(chunkDocs, vectorsStream.getFilePointer());
 
     final int docBase = numDocs - chunkDocs;
     vectorsStream.writeVInt(docBase);
-    vectorsStream.writeVInt(chunkDocs);
+    final int dirtyBit = force ? 1 : 0;
+    vectorsStream.writeVInt((chunkDocs << 1) | dirtyBit);
 
     // total number of fields of the chunk
     final int totalFields = flushNumFields(chunkDocs);
@@ -411,11 +422,9 @@ public final class Lucene90CompressingTermVectorsWriter extends TermVectorsWrite
       flushPayloadLengths();
 
       // compress terms and payloads and write them to the output
-      //
-      // TODO: We could compress in the slices we already have in the buffer (min/max slice
-      // can be set on the buffer itself).
-      byte[] content = termSuffixes.toArrayCopy();
-      compressor.compress(content, 0, content.length, vectorsStream);
+      // using ByteBuffersDataInput reduce memory copy
+      ByteBuffersDataInput content = termSuffixes.toDataInput();
+      compressor.compress(content, vectorsStream);
     }
 
     // reset
@@ -444,16 +453,18 @@ public final class Lucene90CompressingTermVectorsWriter extends TermVectorsWrite
 
   /** Returns a sorted array containing unique field numbers */
   private int[] flushFieldNums() throws IOException {
-    SortedSet<Integer> fieldNums = new TreeSet<>();
+    IntHashSet fieldNumsSet = new IntHashSet();
     for (DocData dd : pendingDocs) {
       for (FieldData fd : dd.fields) {
-        fieldNums.add(fd.fieldNum);
+        fieldNumsSet.add(fd.fieldNum);
       }
     }
+    int[] fieldNums = fieldNumsSet.toArray();
+    Arrays.sort(fieldNums);
 
-    final int numDistinctFields = fieldNums.size();
+    final int numDistinctFields = fieldNums.length;
     assert numDistinctFields > 0;
-    final int bitsRequired = PackedInts.bitsRequired(fieldNums.last());
+    final int bitsRequired = PackedInts.bitsRequired(fieldNums[numDistinctFields - 1]);
     final int token = (Math.min(numDistinctFields - 1, 0x07) << 5) | bitsRequired;
     vectorsStream.writeByte((byte) token);
     if (numDistinctFields - 1 >= 0x07) {
@@ -461,28 +472,20 @@ public final class Lucene90CompressingTermVectorsWriter extends TermVectorsWrite
     }
     final PackedInts.Writer writer =
         PackedInts.getWriterNoHeader(
-            vectorsStream, PackedInts.Format.PACKED, fieldNums.size(), bitsRequired, 1);
+            vectorsStream, PackedInts.Format.PACKED, numDistinctFields, bitsRequired, 1);
     for (Integer fieldNum : fieldNums) {
       writer.add(fieldNum);
     }
     writer.finish();
 
-    int[] fns = new int[fieldNums.size()];
-    int i = 0;
-    for (Integer key : fieldNums) {
-      fns[i++] = key;
-    }
-    return fns;
+    return fieldNums;
   }
 
   private void flushFields(int totalFields, int[] fieldNums) throws IOException {
-    final PackedInts.Writer writer =
-        PackedInts.getWriterNoHeader(
-            vectorsStream,
-            PackedInts.Format.PACKED,
-            totalFields,
-            PackedInts.bitsRequired(fieldNums.length - 1),
-            1);
+    scratchBuffer.reset();
+    final DirectWriter writer =
+        DirectWriter.getInstance(
+            scratchBuffer, totalFields, DirectWriter.bitsRequired(fieldNums.length - 1));
     for (DocData dd : pendingDocs) {
       for (FieldData fd : dd.fields) {
         final int fieldNumIndex = Arrays.binarySearch(fieldNums, fd.fieldNum);
@@ -491,6 +494,8 @@ public final class Lucene90CompressingTermVectorsWriter extends TermVectorsWrite
       }
     }
     writer.finish();
+    vectorsStream.writeVLong(scratchBuffer.size());
+    scratchBuffer.copyTo(vectorsStream);
   }
 
   private void flushFlags(int totalFields, int[] fieldNums) throws IOException {
@@ -515,28 +520,29 @@ public final class Lucene90CompressingTermVectorsWriter extends TermVectorsWrite
     if (nonChangingFlags) {
       // write one flag per field num
       vectorsStream.writeVInt(0);
-      final PackedInts.Writer writer =
-          PackedInts.getWriterNoHeader(
-              vectorsStream, PackedInts.Format.PACKED, fieldFlags.length, FLAGS_BITS, 1);
+      scratchBuffer.reset();
+      final DirectWriter writer =
+          DirectWriter.getInstance(scratchBuffer, fieldFlags.length, FLAGS_BITS);
       for (int flags : fieldFlags) {
         assert flags >= 0;
         writer.add(flags);
       }
-      assert writer.ord() == fieldFlags.length - 1;
       writer.finish();
+      vectorsStream.writeVInt(Math.toIntExact(scratchBuffer.size()));
+      scratchBuffer.copyTo(vectorsStream);
     } else {
       // write one flag for every field instance
       vectorsStream.writeVInt(1);
-      final PackedInts.Writer writer =
-          PackedInts.getWriterNoHeader(
-              vectorsStream, PackedInts.Format.PACKED, totalFields, FLAGS_BITS, 1);
+      scratchBuffer.reset();
+      final DirectWriter writer = DirectWriter.getInstance(scratchBuffer, totalFields, FLAGS_BITS);
       for (DocData dd : pendingDocs) {
         for (FieldData fd : dd.fields) {
           writer.add(fd.flags);
         }
       }
-      assert writer.ord() == totalFields - 1;
       writer.finish();
+      vectorsStream.writeVInt(Math.toIntExact(scratchBuffer.size()));
+      scratchBuffer.copyTo(vectorsStream);
     }
   }
 
@@ -547,18 +553,18 @@ public final class Lucene90CompressingTermVectorsWriter extends TermVectorsWrite
         maxNumTerms |= fd.numTerms;
       }
     }
-    final int bitsRequired = PackedInts.bitsRequired(maxNumTerms);
+    final int bitsRequired = DirectWriter.bitsRequired(maxNumTerms);
     vectorsStream.writeVInt(bitsRequired);
-    final PackedInts.Writer writer =
-        PackedInts.getWriterNoHeader(
-            vectorsStream, PackedInts.Format.PACKED, totalFields, bitsRequired, 1);
+    scratchBuffer.reset();
+    final DirectWriter writer = DirectWriter.getInstance(scratchBuffer, totalFields, bitsRequired);
     for (DocData dd : pendingDocs) {
       for (FieldData fd : dd.fields) {
         writer.add(fd.numTerms);
       }
     }
-    assert writer.ord() == totalFields - 1;
     writer.finish();
+    vectorsStream.writeVInt(Math.toIntExact(scratchBuffer.size()));
+    scratchBuffer.copyTo(vectorsStream);
   }
 
   private void flushTermLengths() throws IOException {
@@ -709,21 +715,16 @@ public final class Lucene90CompressingTermVectorsWriter extends TermVectorsWrite
   }
 
   @Override
-  public void finish(FieldInfos fis, int numDocs) throws IOException {
+  public void finish(int numDocs) throws IOException {
     if (!pendingDocs.isEmpty()) {
-      numDirtyChunks++; // incomplete: we had to force this flush
-      final long expectedChunkDocs =
-          Math.min(
-              MAX_DOCUMENTS_PER_CHUNK,
-              (long) ((double) chunkSize / termSuffixes.size() * pendingDocs.size()));
-      numDirtyDocs += expectedChunkDocs - pendingDocs.size();
-      flush();
+      flush(true);
     }
     if (numDocs != this.numDocs) {
       throw new RuntimeException(
           "Wrote " + this.numDocs + " docs, finish called with numDocs=" + numDocs);
     }
     indexWriter.finish(numDocs, vectorsStream.getFilePointer(), metaStream);
+    metaStream.writeVLong(numChunks);
     metaStream.writeVLong(numDirtyChunks);
     metaStream.writeVLong(numDirtyDocs);
     CodecUtil.writeFooter(metaStream);
@@ -798,133 +799,141 @@ public final class Lucene90CompressingTermVectorsWriter extends TermVectorsWrite
     boolean v = true;
     try {
       v = Boolean.parseBoolean(System.getProperty(BULK_MERGE_ENABLED_SYSPROP, "true"));
-    } catch (SecurityException ignored) {
+    } catch (
+        @SuppressWarnings("unused")
+        SecurityException ignored) {
     }
     BULK_MERGE_ENABLED = v;
   }
 
-  @Override
-  public int merge(MergeState mergeState) throws IOException {
-    if (mergeState.needsIndexSort) {
-      // TODO: can we gain back some optos even if index is sorted?  E.g. if sort results in large
-      // chunks of contiguous docs from one sub
-      // being copied over...?
-      return super.merge(mergeState);
+  private void copyChunks(
+      final MergeState mergeState,
+      final CompressingTermVectorsSub sub,
+      final int fromDocID,
+      final int toDocID)
+      throws IOException {
+    final Lucene90CompressingTermVectorsReader reader =
+        (Lucene90CompressingTermVectorsReader) mergeState.termVectorsReaders[sub.readerIndex];
+    assert reader.getVersion() == VERSION_CURRENT;
+    assert reader.getChunkSize() == chunkSize;
+    assert reader.getCompressionMode() == compressionMode;
+    assert !tooDirty(reader);
+    assert mergeState.liveDocs[sub.readerIndex] == null;
+
+    int docID = fromDocID;
+    final FieldsIndex index = reader.getIndexReader();
+
+    // copy docs that belong to the previous chunk
+    while (docID < toDocID && reader.isLoaded(docID)) {
+      addAllDocVectors(reader.get(docID++), mergeState);
     }
-    int docCount = 0;
-    int numReaders = mergeState.maxDocs.length;
 
-    MatchingReaders matching = new MatchingReaders(mergeState);
-
-    for (int readerIndex = 0; readerIndex < numReaders; readerIndex++) {
-      Lucene90CompressingTermVectorsReader matchingVectorsReader = null;
-      final TermVectorsReader vectorsReader = mergeState.termVectorsReaders[readerIndex];
-      if (matching.matchingReaders[readerIndex]) {
-        // we can only bulk-copy if the matching reader is also a CompressingTermVectorsReader
-        if (vectorsReader != null
-            && vectorsReader instanceof Lucene90CompressingTermVectorsReader) {
-          matchingVectorsReader = (Lucene90CompressingTermVectorsReader) vectorsReader;
-        }
+    if (docID >= toDocID) {
+      return;
+    }
+    // copy chunks
+    long fromPointer = index.getStartPointer(docID);
+    final long toPointer =
+        toDocID == sub.maxDoc ? reader.getMaxPointer() : index.getStartPointer(toDocID);
+    if (fromPointer < toPointer) {
+      // flush any pending chunks
+      if (!pendingDocs.isEmpty()) {
+        flush(true);
       }
-
-      final int maxDoc = mergeState.maxDocs[readerIndex];
-      final Bits liveDocs = mergeState.liveDocs[readerIndex];
-
-      if (matchingVectorsReader != null
-          && matchingVectorsReader.getCompressionMode() == compressionMode
-          && matchingVectorsReader.getChunkSize() == chunkSize
-          && matchingVectorsReader.getVersion() == VERSION_CURRENT
-          && matchingVectorsReader.getPackedIntsVersion() == PackedInts.VERSION_CURRENT
-          && BULK_MERGE_ENABLED
-          && liveDocs == null
-          && !tooDirty(matchingVectorsReader)) {
-        // optimized merge, raw byte copy
-        // its not worth fine-graining this if there are deletions.
-
-        matchingVectorsReader.checkIntegrity();
-
-        // flush any pending chunks
-        if (!pendingDocs.isEmpty()) {
-          flush();
-          numDirtyChunks++; // incomplete: we had to force this flush
-        }
-
+      final IndexInput rawDocs = reader.getVectorsStream();
+      rawDocs.seek(fromPointer);
+      do {
         // iterate over each chunk. we use the vectors index to find chunk boundaries,
         // read the docstart + doccount from the chunk header (we write a new header, since doc
         // numbers will change),
         // and just copy the bytes directly.
-        IndexInput rawDocs = matchingVectorsReader.getVectorsStream();
-        FieldsIndex index = matchingVectorsReader.getIndexReader();
-        rawDocs.seek(index.getStartPointer(0));
-        int docID = 0;
-        while (docID < maxDoc) {
-          // read header
-          int base = rawDocs.readVInt();
-          if (base != docID) {
-            throw new CorruptIndexException(
-                "invalid state: base=" + base + ", docID=" + docID, rawDocs);
-          }
-          int bufferedDocs = rawDocs.readVInt();
-
-          // write a new index entry and new header for this chunk.
-          indexWriter.writeIndex(bufferedDocs, vectorsStream.getFilePointer());
-          vectorsStream.writeVInt(docCount); // rebase
-          vectorsStream.writeVInt(bufferedDocs);
-          docID += bufferedDocs;
-          docCount += bufferedDocs;
-          numDocs += bufferedDocs;
-
-          if (docID > maxDoc) {
-            throw new CorruptIndexException(
-                "invalid state: base=" + base + ", count=" + bufferedDocs + ", maxDoc=" + maxDoc,
-                rawDocs);
-          }
-
-          // copy bytes until the next chunk boundary (or end of chunk data).
-          // using the stored fields index for this isn't the most efficient, but fast enough
-          // and is a source of redundancy for detecting bad things.
-          final long end;
-          if (docID == maxDoc) {
-            end = matchingVectorsReader.getMaxPointer();
-          } else {
-            end = index.getStartPointer(docID);
-          }
-          vectorsStream.copyBytes(rawDocs, end - rawDocs.getFilePointer());
+        // read header
+        final int base = rawDocs.readVInt();
+        if (base != docID) {
+          throw new CorruptIndexException(
+              "invalid state: base=" + base + ", docID=" + docID, rawDocs);
         }
 
-        if (rawDocs.getFilePointer() != matchingVectorsReader.getMaxPointer()) {
+        final int code = rawDocs.readVInt();
+        final int bufferedDocs = code >>> 1;
+
+        // write a new index entry and new header for this chunk.
+        indexWriter.writeIndex(bufferedDocs, vectorsStream.getFilePointer());
+        vectorsStream.writeVInt(numDocs); // rebase
+        vectorsStream.writeVInt(code);
+        docID += bufferedDocs;
+        numDocs += bufferedDocs;
+        if (docID > toDocID) {
           throw new CorruptIndexException(
-              "invalid state: pos="
-                  + rawDocs.getFilePointer()
-                  + ", max="
-                  + matchingVectorsReader.getMaxPointer(),
+              "invalid state: base=" + base + ", count=" + bufferedDocs + ", toDocID=" + toDocID,
               rawDocs);
         }
 
-        // since we bulk merged all chunks, we inherit any dirty ones from this segment.
-        numDirtyChunks += matchingVectorsReader.getNumDirtyChunks();
-        numDirtyDocs += matchingVectorsReader.getNumDirtyDocs();
+        // copy bytes until the next chunk boundary (or end of chunk data).
+        // using the stored fields index for this isn't the most efficient, but fast enough
+        // and is a source of redundancy for detecting bad things.
+        final long end;
+        if (docID == sub.maxDoc) {
+          end = reader.getMaxPointer();
+        } else {
+          end = index.getStartPointer(docID);
+        }
+        vectorsStream.copyBytes(rawDocs, end - rawDocs.getFilePointer());
+        ++numChunks;
+        boolean dirtyChunk = (code & 1) != 0;
+        if (dirtyChunk) {
+          numDirtyChunks++;
+          numDirtyDocs += bufferedDocs;
+        }
+        fromPointer = end;
+      } while (fromPointer < toPointer);
+    }
+    // copy leftover docs that don't form a complete chunk
+    assert reader.isLoaded(docID) == false;
+    while (docID < toDocID) {
+      addAllDocVectors(reader.get(docID++), mergeState);
+    }
+  }
+
+  @Override
+  public int merge(MergeState mergeState) throws IOException {
+    final int numReaders = mergeState.termVectorsReaders.length;
+    final MatchingReaders matchingReaders = new MatchingReaders(mergeState);
+    final List<CompressingTermVectorsSub> subs = new ArrayList<>(numReaders);
+    for (int i = 0; i < numReaders; i++) {
+      final TermVectorsReader reader = mergeState.termVectorsReaders[i];
+      if (reader != null) {
+        reader.checkIntegrity();
+      }
+      final boolean bulkMerge = canPerformBulkMerge(mergeState, matchingReaders, i);
+      subs.add(new CompressingTermVectorsSub(mergeState, bulkMerge, i));
+    }
+    int docCount = 0;
+    final DocIDMerger<CompressingTermVectorsSub> docIDMerger =
+        DocIDMerger.of(subs, mergeState.needsIndexSort);
+    CompressingTermVectorsSub sub = docIDMerger.next();
+    while (sub != null) {
+      assert sub.mappedDocID == docCount : sub.mappedDocID + " != " + docCount;
+      if (sub.canPerformBulkMerge) {
+        final int fromDocID = sub.docID;
+        int toDocID = fromDocID;
+        final CompressingTermVectorsSub current = sub;
+        while ((sub = docIDMerger.next()) == current) {
+          ++toDocID;
+          assert sub.docID == toDocID;
+        }
+        ++toDocID; // exclusive bound
+        copyChunks(mergeState, current, fromDocID, toDocID);
+        docCount += toDocID - fromDocID;
       } else {
-        // naive merge...
-        if (vectorsReader != null) {
-          vectorsReader.checkIntegrity();
-        }
-        for (int i = 0; i < maxDoc; i++) {
-          if (liveDocs != null && liveDocs.get(i) == false) {
-            continue;
-          }
-          Fields vectors;
-          if (vectorsReader == null) {
-            vectors = null;
-          } else {
-            vectors = vectorsReader.get(i);
-          }
-          addAllDocVectors(vectors, mergeState);
-          ++docCount;
-        }
+        final TermVectorsReader reader = mergeState.termVectorsReaders[sub.readerIndex];
+        final Fields vectors = reader != null ? reader.get(sub.docID) : null;
+        addAllDocVectors(vectors, mergeState);
+        ++docCount;
+        sub = docIDMerger.next();
       }
     }
-    finish(mergeState.mergeFieldInfos, docCount);
+    finish(docCount);
     return docCount;
   }
 
@@ -937,10 +946,52 @@ public final class Lucene90CompressingTermVectorsWriter extends TermVectorsWrite
    * ratio can degrade. This is a safety switch.
    */
   boolean tooDirty(Lucene90CompressingTermVectorsReader candidate) {
-    // more than 1% dirty, or more than hard limit of 1024 dirty chunks
-    return candidate.getNumDirtyChunks() > 1024
-        || (candidate.getNumDirtyChunks() > 1
-            && candidate.getNumDirtyDocs() * 100 > candidate.getNumDocs());
+    // A segment is considered dirty only if it has enough dirty docs to make a full block
+    // AND more than 1% blocks are dirty.
+    return candidate.getNumDirtyDocs() > maxDocsPerChunk
+        && candidate.getNumDirtyChunks() * 100 > candidate.getNumChunks();
+  }
+
+  private boolean canPerformBulkMerge(
+      MergeState mergeState, MatchingReaders matchingReaders, int readerIndex) {
+    if (mergeState.termVectorsReaders[readerIndex]
+        instanceof Lucene90CompressingTermVectorsReader) {
+      final Lucene90CompressingTermVectorsReader reader =
+          (Lucene90CompressingTermVectorsReader) mergeState.termVectorsReaders[readerIndex];
+      return BULK_MERGE_ENABLED
+          && matchingReaders.matchingReaders[readerIndex]
+          && reader.getCompressionMode() == compressionMode
+          && reader.getChunkSize() == chunkSize
+          && reader.getVersion() == VERSION_CURRENT
+          && reader.getPackedIntsVersion() == PackedInts.VERSION_CURRENT
+          && mergeState.liveDocs[readerIndex] == null
+          && !tooDirty(reader);
+    }
+    return false;
+  }
+
+  private static class CompressingTermVectorsSub extends DocIDMerger.Sub {
+    final int maxDoc;
+    final int readerIndex;
+    final boolean canPerformBulkMerge;
+    int docID = -1;
+
+    CompressingTermVectorsSub(MergeState mergeState, boolean canPerformBulkMerge, int readerIndex) {
+      super(mergeState.docMaps[readerIndex]);
+      this.maxDoc = mergeState.maxDocs[readerIndex];
+      this.readerIndex = readerIndex;
+      this.canPerformBulkMerge = canPerformBulkMerge;
+    }
+
+    @Override
+    public int nextDoc() {
+      docID++;
+      if (docID == maxDoc) {
+        return NO_MORE_DOCS;
+      } else {
+        return docID;
+      }
+    }
   }
 
   @Override
@@ -951,7 +1002,8 @@ public final class Lucene90CompressingTermVectorsWriter extends TermVectorsWrite
         + payloadLengthsBuf.length
         + termSuffixes.ramBytesUsed()
         + payloadBytes.ramBytesUsed()
-        + lastTerm.bytes.length;
+        + lastTerm.bytes.length
+        + scratchBuffer.ramBytesUsed();
   }
 
   @Override

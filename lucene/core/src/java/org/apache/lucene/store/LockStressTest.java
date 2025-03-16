@@ -47,7 +47,7 @@ public class LockStressTest {
               + "  verifierPort = port that LockVerifyServer is listening on\n"
               + "  lockFactoryClassName = primary FSLockFactory class that we will use\n"
               + "  lockDirName = path to the lock directory\n"
-              + "  sleepTimeMS = milliseconds to pause betweeen each lock obtain/release\n"
+              + "  sleepTimeMS = milliseconds to pause between each lock obtain/release\n"
               + "  count = number of locking tries\n"
               + "\n"
               + "You should run multiple instances of this process, each with its own\n"
@@ -103,8 +103,7 @@ public class LockStressTest {
     System.out.println(
         "Connecting to server " + addr + " and registering as client " + myID + "...");
     try (Socket socket = new Socket()) {
-      socket.setReuseAddress(true);
-      socket.connect(addr, 500);
+      socket.connect(addr, 3000); // wait at most 3 seconds to successfully connect, else fail
       final OutputStream out = socket.getOutputStream();
       final InputStream in = socket.getInputStream();
 
@@ -119,19 +118,23 @@ public class LockStressTest {
       }
 
       for (int i = 0; i < count; i++) {
-        try (final Lock l = verifyLF.obtainLock(lockDir, LOCK_FILE_NAME)) {
+        try (var _ = verifyLF.obtainLock(lockDir, LOCK_FILE_NAME)) {
           if (rnd.nextInt(10) == 0) {
             if (rnd.nextBoolean()) {
               verifyLF = new VerifyingLockFactory(getNewLockFactory(lockFactoryClassName), in, out);
             }
-            try (final Lock secondLock = verifyLF.obtainLock(lockDir, LOCK_FILE_NAME)) {
+            try (var _ = verifyLF.obtainLock(lockDir, LOCK_FILE_NAME)) {
               throw new IOException("Double obtain");
-            } catch (LockObtainFailedException loe) {
+            } catch (
+                @SuppressWarnings("unused")
+                LockObtainFailedException loe) {
               // pass
             }
           }
           Thread.sleep(sleepTimeMS);
-        } catch (LockObtainFailedException loe) {
+        } catch (
+            @SuppressWarnings("unused")
+            LockObtainFailedException loe) {
           // obtain failed
         }
 
@@ -151,7 +154,9 @@ public class LockStressTest {
     // try to get static INSTANCE field of class
     try {
       return (FSLockFactory) Class.forName(lockFactoryClassName).getField("INSTANCE").get(null);
-    } catch (ReflectiveOperationException e) {
+    } catch (
+        @SuppressWarnings("unused")
+        ReflectiveOperationException e) {
       // fall-through
     }
 
@@ -161,7 +166,7 @@ public class LockStressTest {
           .asSubclass(FSLockFactory.class)
           .getConstructor()
           .newInstance();
-    } catch (ReflectiveOperationException | ClassCastException e) {
+    } catch (@SuppressWarnings("unused") ReflectiveOperationException | ClassCastException e) {
       // fall-through
     }
 

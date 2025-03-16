@@ -39,15 +39,17 @@ public class Passage {
   private int[] matchTermFreqInDoc = new int[8];
   private int numMatches = 0;
 
-  /** @lucene.internal */
+  /**
+   * @lucene.internal
+   */
   public void addMatch(int startOffset, int endOffset, BytesRef term, int termFreqInDoc) {
     assert startOffset >= this.startOffset && startOffset <= this.endOffset;
     if (numMatches == matchStarts.length) {
       int newLength = ArrayUtil.oversize(numMatches + 1, RamUsageEstimator.NUM_BYTES_OBJECT_REF);
-      int newMatchStarts[] = new int[newLength];
-      int newMatchEnds[] = new int[newLength];
-      int newMatchTermFreqInDoc[] = new int[newLength];
-      BytesRef newMatchTerms[] = new BytesRef[newLength];
+      int[] newMatchStarts = new int[newLength];
+      int[] newMatchEnds = new int[newLength];
+      int[] newMatchTermFreqInDoc = new int[newLength];
+      BytesRef[] newMatchTerms = new BytesRef[newLength];
       System.arraycopy(matchStarts, 0, newMatchStarts, 0, numMatches);
       System.arraycopy(matchEnds, 0, newMatchEnds, 0, numMatches);
       System.arraycopy(matchTerms, 0, newMatchTerms, 0, numMatches);
@@ -65,7 +67,9 @@ public class Passage {
     numMatches++;
   }
 
-  /** @lucene.internal */
+  /**
+   * @lucene.internal
+   */
   public void reset() {
     startOffset = endOffset = -1;
     score = 0.0f;
@@ -177,12 +181,16 @@ public class Passage {
     return matchTermFreqInDoc;
   }
 
-  /** @lucene.internal */
+  /**
+   * @lucene.internal
+   */
   public void setStartOffset(int startOffset) {
     this.startOffset = startOffset;
   }
 
-  /** @lucene.internal */
+  /**
+   * @lucene.internal
+   */
   public void setEndOffset(int endOffset) {
     assert startOffset <= endOffset;
     this.endOffset = endOffset;

@@ -52,6 +52,11 @@ public abstract class EmptyDocValuesProducer extends DocValuesProducer {
   }
 
   @Override
+  public DocValuesSkipper getSkipper(FieldInfo field) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
   public void checkIntegrity() {
     throw new UnsupportedOperationException();
   }
@@ -59,11 +64,6 @@ public abstract class EmptyDocValuesProducer extends DocValuesProducer {
   /** Closes this doc values producer. */
   @Override
   public void close() {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public long ramBytesUsed() {
     throw new UnsupportedOperationException();
   }
 }

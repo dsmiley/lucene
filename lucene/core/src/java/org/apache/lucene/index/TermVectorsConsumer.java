@@ -48,7 +48,7 @@ class TermVectorsConsumer extends TermsHash {
 
   final ByteSliceReader vectorSliceReaderOff = new ByteSliceReader();
 
-  boolean hasVectors;
+  private boolean hasVectors;
   private int numVectorFields;
   int lastDocID;
   private TermVectorsConsumerPerField[] perFields = new TermVectorsConsumerPerField[1];
@@ -82,7 +82,7 @@ class TermVectorsConsumer extends TermsHash {
       try {
         fill(numDocs);
         assert state.segmentInfo != null;
-        writer.finish(state.fieldInfos, numDocs);
+        writer.finish(numDocs);
       } finally {
         IOUtils.close(writer);
       }
@@ -107,6 +107,10 @@ class TermVectorsConsumer extends TermsHash {
       lastDocID = 0;
       accountable = writer;
     }
+  }
+
+  void setHasVectors() {
+    hasVectors = true;
   }
 
   @Override

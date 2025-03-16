@@ -28,18 +28,18 @@ import org.apache.lucene.search.Sort;
 import org.apache.lucene.search.SortField;
 import org.apache.lucene.search.TermQuery;
 import org.apache.lucene.search.TopDocs;
-import org.apache.lucene.search.TopScoreDocCollector;
+import org.apache.lucene.search.TopScoreDocCollectorManager;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.FilterDirectory;
-import org.apache.lucene.store.MockDirectoryWrapper;
 import org.apache.lucene.store.NoLockFactory;
-import org.apache.lucene.util.LuceneTestCase;
-import org.apache.lucene.util.LuceneTestCase.SuppressCodecs;
-import org.apache.lucene.util.TestUtil;
-import org.apache.lucene.util.TimeUnits;
+import org.apache.lucene.tests.store.MockDirectoryWrapper;
+import org.apache.lucene.tests.util.LuceneTestCase;
+import org.apache.lucene.tests.util.LuceneTestCase.SuppressCodecs;
+import org.apache.lucene.tests.util.TestUtil;
+import org.apache.lucene.tests.util.TimeUnits;
 
 @SuppressCodecs({"SimpleText", "Direct"})
-@TimeoutSuite(millis = 8 * TimeUnits.HOUR)
+@TimeoutSuite(millis = 24 * TimeUnits.HOUR)
 public class TestIndexWriterMaxDocs extends LuceneTestCase {
 
   // The two hour time was achieved on a Linux 3.13 system with these specs:
@@ -66,10 +66,10 @@ public class TestIndexWriterMaxDocs extends LuceneTestCase {
       assertEquals(IndexWriter.MAX_DOCS, ir.maxDoc());
       assertEquals(IndexWriter.MAX_DOCS, ir.numDocs());
       IndexSearcher searcher = new IndexSearcher(ir);
-      TopScoreDocCollector collector = TopScoreDocCollector.create(10, Integer.MAX_VALUE);
-      searcher.search(new TermQuery(new Term("field", "text")), collector);
-      TopDocs hits = collector.topDocs();
-      assertEquals(IndexWriter.MAX_DOCS, hits.totalHits.value);
+      TopScoreDocCollectorManager collectorManager =
+          new TopScoreDocCollectorManager(10, null, Integer.MAX_VALUE);
+      TopDocs hits = searcher.search(new TermQuery(new Term("field", "text")), collectorManager);
+      assertEquals(IndexWriter.MAX_DOCS, hits.totalHits.value());
 
       // Sort by docID reversed:
       hits =
@@ -77,7 +77,7 @@ public class TestIndexWriterMaxDocs extends LuceneTestCase {
               new TermQuery(new Term("field", "text")),
               10,
               new Sort(new SortField(null, SortField.Type.DOC, true)));
-      assertEquals(IndexWriter.MAX_DOCS, hits.totalHits.value);
+      assertEquals(IndexWriter.MAX_DOCS, hits.totalHits.value());
       assertEquals(10, hits.scoreDocs.length);
       assertEquals(IndexWriter.MAX_DOCS - 1, hits.scoreDocs[0].doc);
       ir.close();
@@ -325,7 +325,7 @@ public class TestIndexWriterMaxDocs extends LuceneTestCase {
 
     DirectoryReader ir = DirectoryReader.open(dir);
     DirectoryReader ir2 = DirectoryReader.open(dir2);
-    IndexReader subReaders[] = new IndexReader[copies + 1];
+    IndexReader[] subReaders = new IndexReader[copies + 1];
     Arrays.fill(subReaders, ir);
     subReaders[subReaders.length - 1] = ir2;
 
@@ -364,7 +364,7 @@ public class TestIndexWriterMaxDocs extends LuceneTestCase {
 
     DirectoryReader ir = DirectoryReader.open(dir);
     DirectoryReader ir2 = DirectoryReader.open(dir2);
-    IndexReader subReaders[] = new IndexReader[copies + 1];
+    IndexReader[] subReaders = new IndexReader[copies + 1];
     Arrays.fill(subReaders, ir);
     subReaders[subReaders.length - 1] = ir2;
 
@@ -400,7 +400,7 @@ public class TestIndexWriterMaxDocs extends LuceneTestCase {
     w = new IndexWriter(dir2, new IndexWriterConfig(null));
     w.commit(); // don't confuse checkindex
     dir2.setMaxSizeInBytes(dir2.sizeInBytes() + 65536); // 64KB
-    Directory dirs[] = new Directory[1 + (IndexWriter.MAX_DOCS / 100000)];
+    Directory[] dirs = new Directory[1 + (IndexWriter.MAX_DOCS / 100000)];
     for (int i = 0; i < dirs.length; i++) {
       // bypass iw check for duplicate dirs
       dirs[i] = new FilterDirectory(dir) {};
@@ -409,7 +409,9 @@ public class TestIndexWriterMaxDocs extends LuceneTestCase {
     try {
       w.addIndexes(dirs);
       fail("didn't get expected exception");
-    } catch (IllegalArgumentException expected) {
+    } catch (
+        @SuppressWarnings("unused")
+        IllegalArgumentException expected) {
       // pass
     } catch (IOException fakeDiskFull) {
       final Exception e;
@@ -451,7 +453,7 @@ public class TestIndexWriterMaxDocs extends LuceneTestCase {
     IndexReader r = DirectoryReader.open(dir);
     CodecReader segReader = (CodecReader) r.leaves().get(0).reader();
 
-    CodecReader readers[] = new CodecReader[1 + (IndexWriter.MAX_DOCS / 100000)];
+    CodecReader[] readers = new CodecReader[1 + (IndexWriter.MAX_DOCS / 100000)];
     for (int i = 0; i < readers.length; i++) {
       readers[i] = segReader;
     }
@@ -459,7 +461,9 @@ public class TestIndexWriterMaxDocs extends LuceneTestCase {
     try {
       w.addIndexes(readers);
       fail("didn't get expected exception");
-    } catch (IllegalArgumentException expected) {
+    } catch (
+        @SuppressWarnings("unused")
+        IllegalArgumentException expected) {
       // pass
     } catch (IOException fakeDiskFull) {
       final Exception e;
@@ -524,7 +528,7 @@ public class TestIndexWriterMaxDocs extends LuceneTestCase {
       Directory dir = newDirectory();
       IndexWriter w = new IndexWriter(dir, new IndexWriterConfig(null));
       w.addDocument(new Document());
-      w.getReader().close();
+      DirectoryReader.open(w).close();
       w.addDocument(new Document());
       expectThrows(
           IllegalArgumentException.class,

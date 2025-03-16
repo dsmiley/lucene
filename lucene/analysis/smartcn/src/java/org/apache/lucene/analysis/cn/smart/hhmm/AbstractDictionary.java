@@ -86,7 +86,9 @@ abstract class AbstractDictionary {
     try {
       String cchar = new String(buffer, "GB2312");
       return cchar;
-    } catch (UnsupportedEncodingException e) {
+    } catch (
+        @SuppressWarnings("unused")
+        UnsupportedEncodingException e) {
       return "";
     }
   }
@@ -138,7 +140,7 @@ abstract class AbstractDictionary {
    * @param carray character array
    * @return hashcode
    */
-  public long hash1(char carray[]) {
+  public long hash1(char[] carray) {
     final long p = 1099511628211L;
     long hash = 0xcbf29ce484222325L;
     for (int i = 0; i < carray.length; i++) {
@@ -183,7 +185,7 @@ abstract class AbstractDictionary {
    * @param carray character array
    * @return hashcode
    */
-  public int hash2(char carray[]) {
+  public int hash2(char[] carray) {
     int hash = 5381;
 
     /* hash 33 + c */

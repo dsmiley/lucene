@@ -18,7 +18,6 @@ package org.apache.lucene.analysis.miscellaneous;
 
 import java.io.IOException;
 import java.util.Arrays;
-import java.util.Comparator;
 import org.apache.lucene.analysis.CharArraySet;
 import org.apache.lucene.analysis.TokenFilter;
 import org.apache.lucene.analysis.TokenStream;
@@ -88,7 +87,7 @@ public class FingerprintFilter extends TokenFilter {
   private final boolean buildSingleOutputToken() throws IOException {
     inputEnded = false;
 
-    char clonedLastTerm[] = null;
+    char[] clonedLastTerm = null;
     uniqueTerms = new CharArraySet(8, false);
     int outputTokenSize = 0;
     while (input.incrementToken()) {
@@ -96,7 +95,7 @@ public class FingerprintFilter extends TokenFilter {
         continue;
       }
 
-      final char term[] = termAttribute.buffer();
+      final char[] term = termAttribute.buffer();
       final int length = termAttribute.length();
 
       if (!uniqueTerms.contains(term, 0, length)) {
@@ -147,26 +146,23 @@ public class FingerprintFilter extends TokenFilter {
 
     Arrays.sort(
         items,
-        new Comparator<Object>() {
-          @Override
-          public int compare(Object o1, Object o2) {
-            char v1[] = (char[]) o1;
-            char v2[] = (char[]) o2;
-            int len1 = v1.length;
-            int len2 = v2.length;
-            int lim = Math.min(len1, len2);
+        (o1, o2) -> {
+          char[] v1 = (char[]) o1;
+          char[] v2 = (char[]) o2;
+          int len1 = v1.length;
+          int len2 = v2.length;
+          int lim = Math.min(len1, len2);
 
-            int k = 0;
-            while (k < lim) {
-              char c1 = v1[k];
-              char c2 = v2[k];
-              if (c1 != c2) {
-                return c1 - c2;
-              }
-              k++;
+          int k = 0;
+          while (k < lim) {
+            char c1 = v1[k];
+            char c2 = v2[k];
+            if (c1 != c2) {
+              return c1 - c2;
             }
-            return len1 - len2;
+            k++;
           }
+          return len1 - len2;
         });
 
     // TODO lets append directly to termAttribute?

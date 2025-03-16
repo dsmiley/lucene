@@ -21,6 +21,7 @@ import java.io.PrintWriter;
 import java.text.NumberFormat;
 import java.util.Locale;
 import org.apache.lucene.benchmark.quality.QualityQuery;
+import org.apache.lucene.index.StoredFields;
 import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.ScoreDoc;
 import org.apache.lucene.search.TopDocs;
@@ -31,9 +32,9 @@ import org.apache.lucene.search.TopDocs;
  */
 public class SubmissionReport {
 
-  private NumberFormat nf;
-  private PrintWriter logger;
-  private String name;
+  private final NumberFormat nf;
+  private final PrintWriter logger;
+  private final String name;
 
   /**
    * Constructor for SubmissionReport.
@@ -63,11 +64,12 @@ public class SubmissionReport {
     if (logger == null) {
       return;
     }
-    ScoreDoc sd[] = td.scoreDocs;
+    ScoreDoc[] sd = td.scoreDocs;
     String sep = " \t ";
     DocNameExtractor xt = new DocNameExtractor(docNameField);
+    StoredFields storedFields = searcher.storedFields();
     for (int i = 0; i < sd.length; i++) {
-      String docName = xt.docName(searcher, sd[i].doc);
+      String docName = xt.docName(storedFields, sd[i].doc);
       logger.println(
           qq.getQueryID()
               + sep
@@ -89,7 +91,7 @@ public class SubmissionReport {
     }
   }
 
-  private static String padd = "                                    ";
+  private static final String padd = "                                    ";
 
   private String format(String s, int minLen) {
     s = (s == null ? "" : s);

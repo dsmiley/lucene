@@ -47,6 +47,7 @@ public class UsageTrackingQueryCachingPolicy implements QueryCachingPolicy {
     // already have the DocIdSetIterator#cost API) but the cost to build the
     // DocIdSet in the first place
     return query instanceof MultiTermQuery
+        || query instanceof MultiTermQueryConstantScoreBlendedWrapper
         || query instanceof MultiTermQueryConstantScoreWrapper
         || query instanceof TermInSetQuery
         || isPointQuery(query);
@@ -58,9 +59,8 @@ public class UsageTrackingQueryCachingPolicy implements QueryCachingPolicy {
       return true;
     }
 
-    if (query instanceof DocValuesFieldExistsQuery) {
-      // We do not bother caching DocValuesFieldExistsQuery queries since they are already plenty
-      // fast.
+    if (query instanceof FieldExistsQuery) {
+      // We do not bother caching FieldExistsQuery queries since they are already plenty fast.
       return true;
     }
 
@@ -75,15 +75,13 @@ public class UsageTrackingQueryCachingPolicy implements QueryCachingPolicy {
       return true;
     }
 
-    if (query instanceof BooleanQuery) {
-      BooleanQuery bq = (BooleanQuery) query;
+    if (query instanceof BooleanQuery bq) {
       if (bq.clauses().isEmpty()) {
         return true;
       }
     }
 
-    if (query instanceof DisjunctionMaxQuery) {
-      DisjunctionMaxQuery dmq = (DisjunctionMaxQuery) query;
+    if (query instanceof DisjunctionMaxQuery dmq) {
       if (dmq.getDisjuncts().isEmpty()) {
         return true;
       }

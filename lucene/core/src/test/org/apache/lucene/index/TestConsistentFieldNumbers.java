@@ -17,15 +17,15 @@
 package org.apache.lucene.index;
 
 import java.io.IOException;
-import org.apache.lucene.analysis.MockAnalyzer;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field;
 import org.apache.lucene.document.FieldType;
 import org.apache.lucene.document.StoredField;
 import org.apache.lucene.document.TextField;
 import org.apache.lucene.store.Directory;
-import org.apache.lucene.util.FailOnNonBulkMergesInfoStream;
-import org.apache.lucene.util.LuceneTestCase;
+import org.apache.lucene.tests.analysis.MockAnalyzer;
+import org.apache.lucene.tests.util.FailOnNonBulkMergesInfoStream;
+import org.apache.lucene.tests.util.LuceneTestCase;
 import org.junit.Test;
 
 public class TestConsistentFieldNumbers extends LuceneTestCase {
@@ -57,10 +57,8 @@ public class TestConsistentFieldNumbers extends LuceneTestCase {
       }
 
       Document d2 = new Document();
-      FieldType customType2 = new FieldType(TextField.TYPE_STORED);
-      customType2.setStoreTermVectors(true);
       d2.add(new TextField("f2", "second field", Field.Store.NO));
-      d2.add(new Field("f1", "first field", customType2));
+      d2.add(new TextField("f1", "first field", Field.Store.YES));
       d2.add(new TextField("f3", "third field", Field.Store.NO));
       d2.add(new TextField("f4", "fourth field", Field.Store.NO));
       writer.addDocument(d2);
@@ -121,10 +119,8 @@ public class TestConsistentFieldNumbers extends LuceneTestCase {
                 .setMergePolicy(NoMergePolicy.INSTANCE));
 
     Document d2 = new Document();
-    FieldType customType2 = new FieldType(TextField.TYPE_STORED);
-    customType2.setStoreTermVectors(true);
     d2.add(new TextField("f2", "second field", Field.Store.YES));
-    d2.add(new Field("f1", "first field", customType2));
+    d2.add(new TextField("f1", "first field", Field.Store.YES));
     d2.add(new TextField("f3", "third field", Field.Store.YES));
     d2.add(new TextField("f4", "fourth field", Field.Store.YES));
     writer.addDocument(d2);
@@ -294,7 +290,7 @@ public class TestConsistentFieldNumbers extends LuceneTestCase {
       for (FieldInfo fi : fis) {
         Field expected = getField(Integer.parseInt(fi.name));
         assertEquals(expected.fieldType().indexOptions(), fi.getIndexOptions());
-        assertEquals(expected.fieldType().storeTermVectors(), fi.hasVectors());
+        assertEquals(expected.fieldType().storeTermVectors(), fi.hasTermVectors());
       }
     }
 

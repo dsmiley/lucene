@@ -16,8 +16,12 @@
  */
 package org.apache.lucene.analysis;
 
-import java.util.*;
-import org.apache.lucene.util.LuceneTestCase;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.Locale;
+import java.util.Map;
+import org.apache.lucene.tests.util.LuceneTestCase;
 
 public class TestCharArrayMap extends LuceneTestCase {
   public void doRandom(int iter, boolean ignoreCase) {
@@ -130,6 +134,7 @@ public class TestCharArrayMap extends LuceneTestCase {
   }
 
   // TODO: break this up into simpler test methods vs. "telling a story"
+  @SuppressWarnings("UnnecessaryStringBuilder")
   public void testModifyOnUnmodifiable() {
     CharArrayMap<Integer> map = new CharArrayMap<>(2, false);
     map.put("foo", 1);

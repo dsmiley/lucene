@@ -26,7 +26,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
-import org.apache.lucene.analysis.MockAnalyzer;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field;
 import org.apache.lucene.index.ConcurrentMergeScheduler;
@@ -38,15 +37,17 @@ import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.IndexWriterConfig;
 import org.apache.lucene.index.LeafReader;
 import org.apache.lucene.index.LeafReaderContext;
-import org.apache.lucene.index.RandomIndexWriter;
 import org.apache.lucene.index.Term;
-import org.apache.lucene.index.ThreadedIndexingAndSearchingTestCase;
 import org.apache.lucene.store.AlreadyClosedException;
 import org.apache.lucene.store.Directory;
-import org.apache.lucene.util.LuceneTestCase;
-import org.apache.lucene.util.LuceneTestCase.SuppressCodecs;
+import org.apache.lucene.tests.analysis.MockAnalyzer;
+import org.apache.lucene.tests.index.RandomIndexWriter;
+import org.apache.lucene.tests.index.ThreadedIndexingAndSearchingTestCase;
+import org.apache.lucene.tests.util.LuceneTestCase;
+import org.apache.lucene.tests.util.LuceneTestCase.SuppressCodecs;
+import org.apache.lucene.tests.util.TestUtil;
 import org.apache.lucene.util.NamedThreadFactory;
-import org.apache.lucene.util.TestUtil;
+import org.apache.lucene.util.SuppressForbidden;
 
 @SuppressCodecs({"SimpleText", "Direct"})
 public class TestSearcherManager extends ThreadedIndexingAndSearchingTestCase {
@@ -105,11 +106,13 @@ public class TestSearcherManager extends ThreadedIndexingAndSearchingTestCase {
     lifetimeMGR = new SearcherLifetimeManager();
   }
 
+  @SuppressForbidden(reason = "Thread sleep")
   @Override
-  protected void doSearching(ExecutorService es, final long stopTime) throws Exception {
+  protected void doSearching(ExecutorService es, final int maxIterations) throws Exception {
 
     Thread reopenThread =
         new Thread() {
+          @SuppressForbidden(reason = "Thread sleep")
           @Override
           public void run() {
             try {
@@ -118,7 +121,8 @@ public class TestSearcherManager extends ThreadedIndexingAndSearchingTestCase {
                     "[" + Thread.currentThread().getName() + "]: launch reopen thread");
               }
 
-              while (System.currentTimeMillis() < stopTime) {
+              int iterations = 0;
+              while (++iterations < maxIterations) {
                 Thread.sleep(TestUtil.nextInt(random(), 1, 100));
                 writer.commit();
                 Thread.sleep(TestUtil.nextInt(random(), 1, 5));
@@ -143,7 +147,7 @@ public class TestSearcherManager extends ThreadedIndexingAndSearchingTestCase {
     reopenThread.setDaemon(true);
     reopenThread.start();
 
-    runSearchThreads(stopTime);
+    runSearchThreads(maxIterations);
 
     reopenThread.join();
   }
@@ -235,7 +239,9 @@ public class TestSearcherManager extends ThreadedIndexingAndSearchingTestCase {
                 awaitEnterWarm.countDown();
                 awaitClose.await();
               }
-            } catch (InterruptedException e) {
+            } catch (
+                @SuppressWarnings("unused")
+                InterruptedException e) {
               //
             }
             return new IndexSearcher(r, es);
@@ -270,7 +276,9 @@ public class TestSearcherManager extends ThreadedIndexingAndSearchingTestCase {
                   }
                   searcherManager.maybeRefresh();
                   success.set(true);
-                } catch (AlreadyClosedException e) {
+                } catch (
+                    @SuppressWarnings("unused")
+                    AlreadyClosedException e) {
                   // expected
                 } catch (Throwable e) {
                   if (VERBOSE) {
@@ -642,7 +650,9 @@ public class TestSearcherManager extends ThreadedIndexingAndSearchingTestCase {
                   IndexSearcher searcher;
                   try {
                     searcher = mgr.acquire();
-                  } catch (AlreadyClosedException ace) {
+                  } catch (
+                      @SuppressWarnings("unused")
+                      AlreadyClosedException ace) {
                     // ok
                     continue;
                   }
@@ -672,7 +682,9 @@ public class TestSearcherManager extends ThreadedIndexingAndSearchingTestCase {
                   refreshCount++;
                   try {
                     mgr.maybeRefreshBlocking();
-                  } catch (AlreadyClosedException ace) {
+                  } catch (
+                      @SuppressWarnings("unused")
+                      AlreadyClosedException ace) {
                     // ok
                     aceCount++;
                     continue;
@@ -704,7 +716,9 @@ public class TestSearcherManager extends ThreadedIndexingAndSearchingTestCase {
                   try {
                     mgrRef.set(new SearcherManager(writerRef.get(), null));
                     break;
-                  } catch (AlreadyClosedException ace) {
+                  } catch (
+                      @SuppressWarnings("unused")
+                      AlreadyClosedException ace) {
                     // ok
                     aceCount++;
                   }

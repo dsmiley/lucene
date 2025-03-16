@@ -55,6 +55,7 @@ import org.apache.lucene.util.NumericUtils;
 public class XYPointField extends Field {
   /** XYPoint is encoded as integer values so number of bytes is 4 */
   public static final int BYTES = Integer.BYTES;
+
   /**
    * Type for an indexed XYPoint
    *
@@ -107,7 +108,7 @@ public class XYPointField extends Field {
     result.append(name);
     result.append(':');
 
-    byte bytes[] = ((BytesRef) fieldsData).bytes;
+    byte[] bytes = ((BytesRef) fieldsData).bytes;
     result.append(XYEncodingUtils.decode(bytes, 0));
     result.append(',');
     result.append(XYEncodingUtils.decode(bytes, Integer.BYTES));
@@ -147,8 +148,6 @@ public class XYPointField extends Field {
 
   /**
    * Create a query for matching a bounding box.
-   *
-   * <p>
    *
    * @param field field name. must not be null.
    * @param minX x lower bound.

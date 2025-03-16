@@ -105,14 +105,6 @@ public class DateRangePrefixTree extends NumberRangePrefixTree {
   // how many million years are there?
   private static final int NUM_MYEARS = 586; // we assert how this was computed in the constructor
 
-  /**
-   * An instanced based on {@link Calendar#getInstance(TimeZone, Locale)} with UTC and Locale.Root.
-   * This will (always?) be a {@link GregorianCalendar} with a so-called "Gregorian Change Date" of
-   * 1582.
-   */
-  @Deprecated
-  public static final DateRangePrefixTree INSTANCE = new DateRangePrefixTree(DEFAULT_CAL);
-
   // Instance fields: (all are final)
 
   private final Calendar CAL_TMP; // template
@@ -166,8 +158,7 @@ public class DateRangePrefixTree extends NumberRangePrefixTree {
 
     maxLV = toShape((Calendar) MAXCAL.clone());
     minLV = toShape((Calendar) MINCAL.clone());
-    if (MAXCAL instanceof GregorianCalendar) {
-      GregorianCalendar gCal = (GregorianCalendar) MAXCAL;
+    if (MAXCAL instanceof GregorianCalendar gCal) {
       gregorianChangeDateLV = toUnitShape(gCal.getGregorianChange());
     } else {
       gregorianChangeDateLV = null;
@@ -182,8 +173,9 @@ public class DateRangePrefixTree extends NumberRangePrefixTree {
   public int getNumSubCells(UnitNRShape lv) {
     int cmp = comparePrefix(lv, maxLV);
     assert cmp <= 0;
-    if (cmp == 0) // edge case (literally!)
-    return maxLV.getValAtLevel(lv.getLevel() + 1) + 1;
+    if (cmp == 0) { // edge case (literally!)
+      return maxLV.getValAtLevel(lv.getLevel() + 1) + 1;
+    }
 
     // if using GregorianCalendar and we're after the "Gregorian change date" then we'll compute
     //  the sub-cells ourselves more efficiently without the need to construct a Calendar.
@@ -446,7 +438,6 @@ public class DateRangePrefixTree extends NumberRangePrefixTree {
 
   private void appendPadded(StringBuilder builder, int integer, short positions) {
     assert integer >= 0 && positions >= 1 && positions <= 4;
-    int preBuilderLen = builder.length();
     int intStrLen;
     if (integer > 999) {
       intStrLen = 4;

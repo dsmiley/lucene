@@ -34,7 +34,19 @@ final class IntArrayDocIdSet extends DocIdSet {
       throw new IllegalArgumentException();
     }
     this.docs = docs;
+    assert assertArraySorted(docs, length)
+        : "IntArrayDocIdSet need docs to be sorted"
+            + Arrays.toString(ArrayUtil.copyOfSubArray(docs, 0, length));
     this.length = length;
+  }
+
+  private static boolean assertArraySorted(int[] docs, int length) {
+    for (int i = 1; i < length; i++) {
+      if (docs[i] < docs[i - 1]) {
+        return false;
+      }
+    }
+    return true;
   }
 
   @Override
@@ -43,7 +55,7 @@ final class IntArrayDocIdSet extends DocIdSet {
   }
 
   @Override
-  public DocIdSetIterator iterator() throws IOException {
+  public DocIdSetIterator iterator() {
     return new IntArrayDocIdSetIterator(docs, length);
   }
 
@@ -81,6 +93,21 @@ final class IntArrayDocIdSet extends DocIdSet {
         i = -1 - i;
       }
       return doc = docs[i++];
+    }
+
+    @Override
+    public void intoBitSet(int upTo, FixedBitSet bitSet, int offset) throws IOException {
+      if (doc >= upTo) {
+        return;
+      }
+
+      int from = i - 1;
+      int to = VectorUtil.findNextGEQ(docs, upTo, from, length);
+      for (int i = from; i < to; ++i) {
+        bitSet.set(docs[i] - offset);
+      }
+      doc = docs[to];
+      i = to + 1;
     }
 
     @Override

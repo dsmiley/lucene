@@ -20,23 +20,22 @@ import java.io.IOException;
 import java.io.Reader;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
-import java.util.Arrays;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 import org.apache.lucene.analysis.AbstractAnalysisFactory;
 import org.apache.lucene.analysis.Analyzer;
-import org.apache.lucene.analysis.BaseTokenStreamTestCase;
 import org.apache.lucene.analysis.CharFilterFactory;
-import org.apache.lucene.analysis.MockTokenizer;
 import org.apache.lucene.analysis.TokenFilterFactory;
 import org.apache.lucene.analysis.Tokenizer;
 import org.apache.lucene.analysis.TokenizerFactory;
 import org.apache.lucene.analysis.boost.DelimitedBoostTokenFilterFactory;
 import org.apache.lucene.analysis.miscellaneous.DelimitedTermFrequencyTokenFilterFactory;
+import org.apache.lucene.tests.analysis.BaseTokenStreamTestCase;
+import org.apache.lucene.tests.analysis.MockTokenizer;
+import org.apache.lucene.tests.util.LuceneTestCase.Nightly;
+import org.apache.lucene.tests.util.StringMockResourceLoader;
 import org.apache.lucene.util.AttributeFactory;
-import org.apache.lucene.util.LuceneTestCase.Nightly;
 import org.apache.lucene.util.ResourceLoaderAware;
 import org.apache.lucene.util.Version;
 
@@ -52,10 +51,8 @@ public class TestFactories extends BaseTokenStreamTestCase {
 
   /** Factories that are excluded from testing it with random data */
   private static final Set<Class<? extends AbstractAnalysisFactory>> EXCLUDE_FACTORIES_RANDOM_DATA =
-      new HashSet<>(
-          Arrays.asList(
-              DelimitedTermFrequencyTokenFilterFactory.class,
-              DelimitedBoostTokenFilterFactory.class));
+      Set.of(
+          DelimitedTermFrequencyTokenFilterFactory.class, DelimitedBoostTokenFilterFactory.class);
 
   public void test() throws IOException {
     for (String tokenizer : TokenizerFactory.availableTokenizers()) {
@@ -125,7 +122,7 @@ public class TestFactories extends BaseTokenStreamTestCase {
     try {
       ctor = factoryClazz.getConstructor(Map.class);
     } catch (Exception e) {
-      throw new RuntimeException("factory '" + factoryClazz + "' does not have a proper ctor!");
+      throw new RuntimeException("factory '" + factoryClazz + "' does not have a proper ctor!", e);
     }
 
     AbstractAnalysisFactory factory = null;
@@ -143,9 +140,13 @@ public class TestFactories extends BaseTokenStreamTestCase {
     if (factory instanceof ResourceLoaderAware) {
       try {
         ((ResourceLoaderAware) factory).inform(new StringMockResourceLoader(""));
-      } catch (IOException ignored) {
+      } catch (
+          @SuppressWarnings("unused")
+          IOException ignored) {
         // it's ok if the right files arent available or whatever to throw this
-      } catch (IllegalArgumentException ignored) {
+      } catch (
+          @SuppressWarnings("unused")
+          IllegalArgumentException ignored) {
         // is this ok? I guess so
       }
     }

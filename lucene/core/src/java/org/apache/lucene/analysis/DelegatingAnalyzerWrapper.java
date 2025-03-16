@@ -69,7 +69,11 @@ public abstract class DelegatingAnalyzerWrapper extends AnalyzerWrapper {
     return super.wrapReaderForNormalization(fieldName, reader);
   }
 
-  private static final class DelegatingReuseStrategy extends ReuseStrategy {
+  /**
+   * A {@link org.apache.lucene.analysis.Analyzer.ReuseStrategy} that delegates to the wrapped
+   * analyzer's strategy for reusability of components.
+   */
+  static final class DelegatingReuseStrategy extends ReuseStrategy {
     DelegatingAnalyzerWrapper wrapper;
     private final ReuseStrategy fallbackStrategy;
 
@@ -100,5 +104,4 @@ public abstract class DelegatingAnalyzerWrapper extends AnalyzerWrapper {
       }
     }
   }
-  ;
 }

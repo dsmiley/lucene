@@ -22,18 +22,28 @@ import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.Date;
+import java.util.List;
 import org.apache.lucene.analysis.Analyzer;
 import org.apache.lucene.analysis.standard.StandardAnalyzer;
+import org.apache.lucene.demo.knn.DemoEmbeddings;
+import org.apache.lucene.demo.knn.KnnVectorDict;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.index.DirectoryReader;
-import org.apache.lucene.index.IndexReader;
+import org.apache.lucene.index.StoredFields;
+import org.apache.lucene.index.Term;
 import org.apache.lucene.queryparser.classic.QueryParser;
+import org.apache.lucene.search.BooleanClause;
+import org.apache.lucene.search.BooleanQuery;
 import org.apache.lucene.search.IndexSearcher;
+import org.apache.lucene.search.KnnFloatVectorQuery;
 import org.apache.lucene.search.Query;
+import org.apache.lucene.search.QueryVisitor;
 import org.apache.lucene.search.ScoreDoc;
 import org.apache.lucene.search.TopDocs;
 import org.apache.lucene.store.FSDirectory;
+import org.apache.lucene.util.IOUtils;
 
 /** Simple command-line based search demo. */
 public class SearchFiles {
@@ -43,7 +53,7 @@ public class SearchFiles {
   /** Simple command-line based search demo. */
   public static void main(String[] args) throws Exception {
     String usage =
-        "Usage:\tjava org.apache.lucene.demo.SearchFiles [-index dir] [-field f] [-repeat n] [-queries file] [-query string] [-raw] [-paging hitsPerPage]\n\nSee http://lucene.apache.org/core/4_1_0/demo/ for details.";
+        "Usage:\tjava org.apache.lucene.demo.SearchFiles [-index dir] [-field f] [-repeat n] [-queries file] [-query string] [-raw] [-paging hitsPerPage] [-knn_vector knnHits]\n\nSee http://lucene.apache.org/core/9_0_0/demo/ for details.";
     if (args.length > 0 && ("-h".equals(args[0]) || "-help".equals(args[0]))) {
       System.out.println(usage);
       System.exit(0);
@@ -54,42 +64,54 @@ public class SearchFiles {
     String queries = null;
     int repeat = 0;
     boolean raw = false;
+    int knnVectors = 0;
     String queryString = null;
     int hitsPerPage = 10;
 
     for (int i = 0; i < args.length; i++) {
-      if ("-index".equals(args[i])) {
-        index = args[i + 1];
-        i++;
-      } else if ("-field".equals(args[i])) {
-        field = args[i + 1];
-        i++;
-      } else if ("-queries".equals(args[i])) {
-        queries = args[i + 1];
-        i++;
-      } else if ("-query".equals(args[i])) {
-        queryString = args[i + 1];
-        i++;
-      } else if ("-repeat".equals(args[i])) {
-        repeat = Integer.parseInt(args[i + 1]);
-        i++;
-      } else if ("-raw".equals(args[i])) {
-        raw = true;
-      } else if ("-paging".equals(args[i])) {
-        hitsPerPage = Integer.parseInt(args[i + 1]);
-        if (hitsPerPage <= 0) {
-          System.err.println("There must be at least 1 hit per page.");
+      switch (args[i]) {
+        case "-index":
+          index = args[++i];
+          break;
+        case "-field":
+          field = args[++i];
+          break;
+        case "-queries":
+          queries = args[++i];
+          break;
+        case "-query":
+          queryString = args[++i];
+          break;
+        case "-repeat":
+          repeat = Integer.parseInt(args[++i]);
+          break;
+        case "-raw":
+          raw = true;
+          break;
+        case "-paging":
+          hitsPerPage = Integer.parseInt(args[++i]);
+          if (hitsPerPage <= 0) {
+            System.err.println("There must be at least 1 hit per page.");
+            System.exit(1);
+          }
+          break;
+        case "-knn_vector":
+          knnVectors = Integer.parseInt(args[++i]);
+          break;
+        default:
+          System.err.println("Unknown argument: " + args[i]);
           System.exit(1);
-        }
-        i++;
       }
     }
 
-    IndexReader reader = DirectoryReader.open(FSDirectory.open(Paths.get(index)));
+    DirectoryReader reader = DirectoryReader.open(FSDirectory.open(Paths.get(index)));
     IndexSearcher searcher = new IndexSearcher(reader);
     Analyzer analyzer = new StandardAnalyzer();
-
-    BufferedReader in = null;
+    KnnVectorDict vectorDict = null;
+    if (knnVectors > 0) {
+      vectorDict = new KnnVectorDict(reader.directory(), IndexFiles.KNN_DICT);
+    }
+    BufferedReader in;
     if (queries != null) {
       in = Files.newBufferedReader(Paths.get(queries), StandardCharsets.UTF_8);
     } else {
@@ -113,6 +135,9 @@ public class SearchFiles {
       }
 
       Query query = parser.parse(line);
+      if (knnVectors > 0) {
+        query = addSemanticQuery(query, vectorDict, knnVectors);
+      }
       System.out.println("Searching for: " + query.toString(field));
 
       if (repeat > 0) { // repeat & time as benchmark
@@ -130,7 +155,7 @@ public class SearchFiles {
         break;
       }
     }
-    reader.close();
+    IOUtils.close(vectorDict, reader);
   }
 
   /**
@@ -154,7 +179,7 @@ public class SearchFiles {
     TopDocs results = searcher.search(query, 5 * hitsPerPage);
     ScoreDoc[] hits = results.scoreDocs;
 
-    int numTotalHits = Math.toIntExact(results.totalHits.value);
+    int numTotalHits = Math.toIntExact(results.totalHits.value());
     System.out.println(numTotalHits + " total matching documents");
 
     int start = 0;
@@ -170,7 +195,7 @@ public class SearchFiles {
                 + " total matching documents collected.");
         System.out.println("Collect more (y/n) ?");
         String line = in.readLine();
-        if (line.length() == 0 || line.charAt(0) == 'n') {
+        if (line == null || line.length() == 0 || line.charAt(0) == 'n') {
           break;
         }
 
@@ -179,19 +204,20 @@ public class SearchFiles {
 
       end = Math.min(hits.length, start + hitsPerPage);
 
+      StoredFields storedFields = searcher.storedFields();
       for (int i = start; i < end; i++) {
         if (raw) { // output raw format
           System.out.println("doc=" + hits[i].doc + " score=" + hits[i].score);
           continue;
         }
 
-        Document doc = searcher.doc(hits[i].doc);
+        Document doc = storedFields.document(hits[i].doc);
         String path = doc.get("path");
         if (path != null) {
           System.out.println((i + 1) + ". " + path);
           String title = doc.get("title");
           if (title != null) {
-            System.out.println("   Title: " + doc.get("title"));
+            System.out.println("   Title: " + title);
           }
         } else {
           System.out.println((i + 1) + ". " + "No path for this document");
@@ -215,7 +241,7 @@ public class SearchFiles {
           System.out.println("(q)uit or enter number to jump to a page.");
 
           String line = in.readLine();
-          if (line.length() == 0 || line.charAt(0) == 'q') {
+          if (line == null || line.length() == 0 || line.charAt(0) == 'q') {
             quit = true;
             break;
           }
@@ -240,6 +266,57 @@ public class SearchFiles {
         if (quit) break;
         end = Math.min(numTotalHits, start + hitsPerPage);
       }
+    }
+  }
+
+  private static Query addSemanticQuery(Query query, KnnVectorDict vectorDict, int k)
+      throws IOException {
+    StringBuilder semanticQueryText = new StringBuilder();
+    QueryFieldTermExtractor termExtractor = new QueryFieldTermExtractor("contents");
+    query.visit(termExtractor);
+    for (String term : termExtractor.terms) {
+      semanticQueryText.append(term).append(' ');
+    }
+    if (semanticQueryText.length() > 0) {
+      KnnFloatVectorQuery knnQuery =
+          new KnnFloatVectorQuery(
+              "contents-vector",
+              new DemoEmbeddings(vectorDict).computeEmbedding(semanticQueryText.toString()),
+              k);
+      BooleanQuery.Builder builder = new BooleanQuery.Builder();
+      builder.add(query, BooleanClause.Occur.SHOULD);
+      builder.add(knnQuery, BooleanClause.Occur.SHOULD);
+      return builder.build();
+    }
+    return query;
+  }
+
+  private static class QueryFieldTermExtractor extends QueryVisitor {
+    private final String field;
+    private final List<String> terms = new ArrayList<>();
+
+    QueryFieldTermExtractor(String field) {
+      this.field = field;
+    }
+
+    @Override
+    public boolean acceptField(String field) {
+      return field.equals(this.field);
+    }
+
+    @Override
+    public void consumeTerms(Query query, Term... terms) {
+      for (Term term : terms) {
+        this.terms.add(term.text());
+      }
+    }
+
+    @Override
+    public QueryVisitor getSubVisitor(BooleanClause.Occur occur, Query parent) {
+      if (occur == BooleanClause.Occur.MUST_NOT) {
+        return QueryVisitor.EMPTY_VISITOR;
+      }
+      return this;
     }
   }
 }

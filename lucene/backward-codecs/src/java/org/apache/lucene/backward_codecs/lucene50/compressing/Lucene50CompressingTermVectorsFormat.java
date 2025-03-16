@@ -17,12 +17,12 @@
 package org.apache.lucene.backward_codecs.lucene50.compressing;
 
 import java.io.IOException;
+import org.apache.lucene.backward_codecs.compressing.CompressionMode;
 import org.apache.lucene.codecs.CodecUtil;
 import org.apache.lucene.codecs.StoredFieldsFormat;
 import org.apache.lucene.codecs.TermVectorsFormat;
 import org.apache.lucene.codecs.TermVectorsReader;
 import org.apache.lucene.codecs.TermVectorsWriter;
-import org.apache.lucene.codecs.compressing.CompressionMode;
 import org.apache.lucene.index.FieldInfos;
 import org.apache.lucene.index.SegmentInfo;
 import org.apache.lucene.store.Directory;
@@ -38,14 +38,21 @@ public class Lucene50CompressingTermVectorsFormat extends TermVectorsFormat {
 
   /** format name */
   protected final String formatName;
+
   /** segment suffix */
   protected final String segmentSuffix;
+
   /** compression mode */
   protected final CompressionMode compressionMode;
+
   /** chunk size */
   protected final int chunkSize;
+
   /** block size */
   protected final int blockSize;
+
+  /** max docs per chunk */
+  protected final int maxDocsPerChunk;
 
   /**
    * Create a new {@link Lucene50CompressingTermVectorsFormat}.
@@ -68,6 +75,7 @@ public class Lucene50CompressingTermVectorsFormat extends TermVectorsFormat {
    * @param segmentSuffix a suffix to append to files created by this format
    * @param compressionMode the {@link CompressionMode} to use
    * @param chunkSize the minimum number of bytes of a single chunk of stored documents
+   * @param maxDocsPerChunk the maximum number of documents in a single chunk
    * @param blockSize the number of chunks to store in an index block.
    * @see CompressionMode
    */
@@ -76,6 +84,7 @@ public class Lucene50CompressingTermVectorsFormat extends TermVectorsFormat {
       String segmentSuffix,
       CompressionMode compressionMode,
       int chunkSize,
+      int maxDocsPerChunk,
       int blockSize) {
     this.formatName = formatName;
     this.segmentSuffix = segmentSuffix;
@@ -84,6 +93,7 @@ public class Lucene50CompressingTermVectorsFormat extends TermVectorsFormat {
       throw new IllegalArgumentException("chunkSize must be >= 1");
     }
     this.chunkSize = chunkSize;
+    this.maxDocsPerChunk = maxDocsPerChunk;
     if (blockSize < 1) {
       throw new IllegalArgumentException("blockSize must be >= 1");
     }
@@ -111,6 +121,8 @@ public class Lucene50CompressingTermVectorsFormat extends TermVectorsFormat {
         + compressionMode
         + ", chunkSize="
         + chunkSize
+        + ", maxDocsPerChunk="
+        + maxDocsPerChunk
         + ", blockSize="
         + blockSize
         + ")";

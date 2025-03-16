@@ -23,7 +23,6 @@ import java.io.IOException;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
@@ -60,10 +59,12 @@ import org.apache.lucene.search.similarities.LambdaTTF;
 import org.apache.lucene.search.similarities.Normalization;
 import org.apache.lucene.search.similarities.NormalizationH1;
 import org.apache.lucene.store.Directory;
+import org.apache.lucene.tests.util.LuceneTestCase;
+import org.apache.lucene.tests.util.TestUtil;
 import org.apache.lucene.util.BytesRef;
-import org.apache.lucene.util.LuceneTestCase;
+import org.apache.lucene.util.IOUtils;
 import org.apache.lucene.util.NamedThreadFactory;
-import org.apache.lucene.util.TestUtil;
+import org.apache.lucene.util.SuppressForbidden;
 import org.junit.Test;
 
 @LuceneTestCase.SuppressSysoutChecks(bugUrl = "none")
@@ -74,19 +75,22 @@ public final class Test20NewsgroupsClassification extends LuceneTestCase {
   private static final String CATEGORY_FIELD = "category";
   private static final String BODY_FIELD = "body";
   private static final String SUBJECT_FIELD = "subject";
-  private static final String INDEX_DIR = "/path/to/lucene-solr/lucene/classification/20n";
+  // private static final String INDEX_DIR = "/path/to/lucene-solr/lucene/classification/20n";
 
-  private static boolean index = true;
-  private static boolean split = true;
+  private boolean index = true;
+  private boolean split = true;
 
+  @SuppressForbidden(reason = "Thread sleep")
   @Test
   public void test20Newsgroups() throws Exception {
 
     String indexProperty = System.getProperty("index");
     if (indexProperty != null) {
       try {
-        index = Boolean.valueOf(indexProperty);
-      } catch (Exception e) {
+        index = Boolean.parseBoolean(indexProperty);
+      } catch (
+          @SuppressWarnings("unused")
+          Exception e) {
         // ignore
       }
     }
@@ -94,8 +98,10 @@ public final class Test20NewsgroupsClassification extends LuceneTestCase {
     String splitProperty = System.getProperty("split");
     if (splitProperty != null) {
       try {
-        split = Boolean.valueOf(splitProperty);
-      } catch (Exception e) {
+        split = Boolean.parseBoolean(splitProperty);
+      } catch (
+          @SuppressWarnings("unused")
+          Exception e) {
         // ignore
       }
     }
@@ -119,15 +125,19 @@ public final class Test20NewsgroupsClassification extends LuceneTestCase {
 
         System.out.println("Indexing 20 Newsgroups...");
 
-        long startIndex = System.currentTimeMillis();
+        long startIndex = System.nanoTime();
         IndexWriter indexWriter = new IndexWriter(directory, new IndexWriterConfig(analyzer));
 
-        Path indexDir = Paths.get(INDEX_DIR);
+        Path indexDir = createTempDir("Test20NewsgroupsClassification");
         int docsIndexed = buildIndex(indexDir, indexWriter);
 
-        long endIndex = System.currentTimeMillis();
+        long endIndex = System.nanoTime();
         System.out.println(
-            "Indexed " + docsIndexed + " docs in " + (endIndex - startIndex) / 1000 + "s");
+            "Indexed "
+                + docsIndexed
+                + " docs in "
+                + TimeUnit.NANOSECONDS.toSeconds(endIndex - startIndex)
+                + "s");
 
         indexWriter.close();
       }
@@ -141,7 +151,7 @@ public final class Test20NewsgroupsClassification extends LuceneTestCase {
       if (index && split) {
         System.out.println("Splitting the index...");
 
-        long startSplit = System.currentTimeMillis();
+        long startSplit = System.nanoTime();
         DatasetSplitter datasetSplitter = new DatasetSplitter(0.2, 0);
         datasetSplitter.split(
             reader,
@@ -156,8 +166,9 @@ public final class Test20NewsgroupsClassification extends LuceneTestCase {
             CATEGORY_FIELD);
         reader.close();
         reader = DirectoryReader.open(train); // using the train index from now on
-        long endSplit = System.currentTimeMillis();
-        System.out.println("Splitting done in " + (endSplit - startSplit) / 1000 + "s");
+        long endSplit = System.nanoTime();
+        System.out.println(
+            "Splitting done in " + TimeUnit.NANOSECONDS.toSeconds(endSplit - startSplit) + "s");
       }
 
       classifiers.add(
@@ -321,22 +332,7 @@ public final class Test20NewsgroupsClassification extends LuceneTestCase {
       service.shutdown();
 
     } finally {
-      if (reader != null) {
-        reader.close();
-      }
-      directory.close();
-      if (testReader != null) {
-        testReader.close();
-      }
-      if (test != null) {
-        test.close();
-      }
-      if (train != null) {
-        train.close();
-      }
-      if (cv != null) {
-        cv.close();
-      }
+      IOUtils.close(reader, directory, testReader, test, train, cv);
 
       for (Classifier<BytesRef> c : classifiers) {
         if (c instanceof Closeable) {
@@ -355,7 +351,7 @@ public final class Test20NewsgroupsClassification extends LuceneTestCase {
     futures.add(
         service.submit(
             () -> {
-              final long startTime = System.currentTimeMillis();
+              final long startTime = System.nanoTime();
               ConfusionMatrixGenerator.ConfusionMatrix confusionMatrix;
               if (split) {
                 confusionMatrix =
@@ -366,8 +362,8 @@ public final class Test20NewsgroupsClassification extends LuceneTestCase {
                     ConfusionMatrixGenerator.getConfusionMatrix(
                         ar, classifier, CATEGORY_FIELD, BODY_FIELD, 60000 * 30);
               }
-              final long endTime = System.currentTimeMillis();
-              final int elapse = (int) (endTime - startTime) / 1000;
+              final long endTime = System.nanoTime();
+              final int elapse = (int) TimeUnit.NANOSECONDS.toSeconds(endTime - startTime);
 
               return " * "
                   + classifier
@@ -437,23 +433,23 @@ public final class Test20NewsgroupsClassification extends LuceneTestCase {
           }
         }
       }
-      return new NewsPost(body.toString(), subject, groupName, number);
-    } catch (Throwable e) {
+      return new NewsPost(body.toString(), subject, groupName);
+    } catch (
+        @SuppressWarnings("unused")
+        Throwable e) {
       return null;
     }
   }
 
-  private class NewsPost {
+  private static class NewsPost {
     private final String body;
     private final String subject;
     private final String group;
-    private final String number;
 
-    private NewsPost(String body, String subject, String group, String number) {
+    private NewsPost(String body, String subject, String group) {
       this.body = body;
       this.subject = subject;
       this.group = group;
-      this.number = number;
     }
 
     public String getBody() {
@@ -466,10 +462,6 @@ public final class Test20NewsgroupsClassification extends LuceneTestCase {
 
     public String getGroup() {
       return group;
-    }
-
-    public String getNumber() {
-      return number;
     }
   }
 }

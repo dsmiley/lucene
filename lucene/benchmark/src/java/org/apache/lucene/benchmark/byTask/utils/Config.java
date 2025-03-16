@@ -27,6 +27,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.StringTokenizer;
+import org.apache.lucene.internal.hppc.IntArrayList;
 
 /**
  * Perf run configuration properties.
@@ -54,6 +55,7 @@ public class Config {
   private HashMap<String, Object> valByRound = new HashMap<>();
   private HashMap<String, String> colForValByRound = new HashMap<>();
   private String algorithmText;
+  private int numThreads = 1;
 
   /**
    * Read both algorithm and config properties.
@@ -113,6 +115,14 @@ public class Config {
     }
   }
 
+  public void setNumThreads(int numThreads) {
+    this.numThreads = numThreads;
+  }
+
+  public int getNumThreads() {
+    return numThreads;
+  }
+
   @SuppressWarnings({"unchecked", "rawtypes"})
   private void printProps() {
     System.out.println("------------> config properties:");
@@ -132,7 +142,7 @@ public class Config {
    * @return a string property.
    */
   public String get(String name, String dflt) {
-    String vals[] = (String[]) valByRound.get(name);
+    String[] vals = (String[]) valByRound.get(name);
     if (vals != null) {
       return vals[roundNumber % vals.length];
     }
@@ -141,7 +151,7 @@ public class Config {
     if (sval == null) {
       return null;
     }
-    if (sval.indexOf(":") < 0) {
+    if (sval.indexOf(':') < 0) {
       return sval;
     } else if (sval.indexOf(":\\") >= 0 || sval.indexOf(":/") >= 0) {
       // this previously messed up absolute path names on Windows. Assuming
@@ -149,7 +159,7 @@ public class Config {
       return sval;
     }
     // first time this prop is extracted by round
-    int k = sval.indexOf(":");
+    int k = sval.indexOf(':');
     String colName = sval.substring(0, k);
     sval = sval.substring(k + 1);
     colForValByRound.put(name, colName);
@@ -182,17 +192,17 @@ public class Config {
    */
   public int get(String name, int dflt) {
     // use value by round if already parsed
-    int vals[] = (int[]) valByRound.get(name);
+    int[] vals = (int[]) valByRound.get(name);
     if (vals != null) {
       return vals[roundNumber % vals.length];
     }
     // done if not by round
     String sval = props.getProperty(name, "" + dflt);
-    if (sval.indexOf(":") < 0) {
+    if (sval.indexOf(':') < 0) {
       return Integer.parseInt(sval);
     }
     // first time this prop is extracted by round
-    int k = sval.indexOf(":");
+    int k = sval.indexOf(':');
     String colName = sval.substring(0, k);
     sval = sval.substring(k + 1);
     colForValByRound.put(name, colName);
@@ -212,17 +222,17 @@ public class Config {
    */
   public double get(String name, double dflt) {
     // use value by round if already parsed
-    double vals[] = (double[]) valByRound.get(name);
+    double[] vals = (double[]) valByRound.get(name);
     if (vals != null) {
       return vals[roundNumber % vals.length];
     }
     // done if not by round
     String sval = props.getProperty(name, "" + dflt);
-    if (sval.indexOf(":") < 0) {
+    if (sval.indexOf(':') < 0) {
       return Double.parseDouble(sval);
     }
     // first time this prop is extracted by round
-    int k = sval.indexOf(":");
+    int k = sval.indexOf(':');
     String colName = sval.substring(0, k);
     sval = sval.substring(k + 1);
     colForValByRound.put(name, colName);
@@ -242,17 +252,17 @@ public class Config {
    */
   public boolean get(String name, boolean dflt) {
     // use value by round if already parsed
-    boolean vals[] = (boolean[]) valByRound.get(name);
+    boolean[] vals = (boolean[]) valByRound.get(name);
     if (vals != null) {
       return vals[roundNumber % vals.length];
     }
     // done if not by round
     String sval = props.getProperty(name, "" + dflt);
-    if (sval.indexOf(":") < 0) {
+    if (sval.indexOf(':') < 0) {
       return Boolean.valueOf(sval).booleanValue();
     }
     // first time this prop is extracted by round
-    int k = sval.indexOf(":");
+    int k = sval.indexOf(':');
     String colName = sval.substring(0, k);
     sval = sval.substring(k + 1);
     colForValByRound.put(name, colName);
@@ -278,23 +288,20 @@ public class Config {
       for (final Map.Entry<String, Object> entry : valByRound.entrySet()) {
         final String name = entry.getKey();
         Object a = entry.getValue();
-        if (a instanceof int[]) {
-          int ai[] = (int[]) a;
+        if (a instanceof int[] ai) {
           int n1 = (roundNumber - 1) % ai.length;
           int n2 = roundNumber % ai.length;
           sb.append("  ").append(name).append(":").append(ai[n1]).append("-->").append(ai[n2]);
-        } else if (a instanceof double[]) {
-          double ad[] = (double[]) a;
+        } else if (a instanceof double[] ad) {
           int n1 = (roundNumber - 1) % ad.length;
           int n2 = roundNumber % ad.length;
           sb.append("  ").append(name).append(":").append(ad[n1]).append("-->").append(ad[n2]);
-        } else if (a instanceof String[]) {
-          String ad[] = (String[]) a;
+        } else if (a instanceof String[] ad) {
           int n1 = (roundNumber - 1) % ad.length;
           int n2 = roundNumber % ad.length;
           sb.append("  ").append(name).append(":").append(ad[n1]).append("-->").append(ad[n2]);
         } else {
-          boolean ab[] = (boolean[]) a;
+          boolean[] ab = (boolean[]) a;
           int n1 = (roundNumber - 1) % ab.length;
           int n2 = roundNumber % ab.length;
           sb.append("  ").append(name).append(":").append(ab[n1]).append("-->").append(ab[n2]);
@@ -310,7 +317,7 @@ public class Config {
   }
 
   private String[] propToStringArray(String s) {
-    if (s.indexOf(":") < 0) {
+    if (s.indexOf(':') < 0) {
       return new String[] {s};
     }
 
@@ -325,26 +332,26 @@ public class Config {
 
   // extract properties to array, e.g. for "10:100:5" return int[]{10,100,5}.
   private int[] propToIntArray(String s) {
-    if (s.indexOf(":") < 0) {
+    if (s.indexOf(':') < 0) {
       return new int[] {Integer.parseInt(s)};
     }
 
-    ArrayList<Integer> a = new ArrayList<>();
+    IntArrayList a = new IntArrayList();
     StringTokenizer st = new StringTokenizer(s, ":");
     while (st.hasMoreTokens()) {
       String t = st.nextToken();
-      a.add(Integer.valueOf(t));
+      a.add(Integer.parseInt(t));
     }
-    int res[] = new int[a.size()];
+    int[] res = new int[a.size()];
     for (int i = 0; i < a.size(); i++) {
-      res[i] = a.get(i).intValue();
+      res[i] = a.get(i);
     }
     return res;
   }
 
   // extract properties to array, e.g. for "10.7:100.4:-2.3" return int[]{10.7,100.4,-2.3}.
   private double[] propToDoubleArray(String s) {
-    if (s.indexOf(":") < 0) {
+    if (s.indexOf(':') < 0) {
       return new double[] {Double.parseDouble(s)};
     }
 
@@ -354,7 +361,7 @@ public class Config {
       String t = st.nextToken();
       a.add(Double.valueOf(t));
     }
-    double res[] = new double[a.size()];
+    double[] res = new double[a.size()];
     for (int i = 0; i < a.size(); i++) {
       res[i] = a.get(i).doubleValue();
     }
@@ -363,7 +370,7 @@ public class Config {
 
   // extract properties to array, e.g. for "true:true:false" return boolean[]{true,false,false}.
   private boolean[] propToBooleanArray(String s) {
-    if (s.indexOf(":") < 0) {
+    if (s.indexOf(':') < 0) {
       return new boolean[] {Boolean.valueOf(s).booleanValue()};
     }
 
@@ -373,14 +380,16 @@ public class Config {
       String t = st.nextToken();
       a.add(Boolean.valueOf(t));
     }
-    boolean res[] = new boolean[a.size()];
+    boolean[] res = new boolean[a.size()];
     for (int i = 0; i < a.size(); i++) {
       res[i] = a.get(i).booleanValue();
     }
     return res;
   }
 
-  /** @return names of params set by round, for reports title */
+  /**
+   * @return names of params set by round, for reports title
+   */
   public String getColsNamesForValsByRound() {
     if (colForValByRound.size() == 0) {
       return "";
@@ -392,7 +401,9 @@ public class Config {
     return sb.toString();
   }
 
-  /** @return values of params set by round, for reports lines. */
+  /**
+   * @return values of params set by round, for reports lines.
+   */
   public String getColsValuesForValsByRound(int roundNum) {
     if (colForValByRound.size() == 0) {
       return "";
@@ -409,20 +420,17 @@ public class Config {
 
         // append actual values, for that round
         Object a = valByRound.get(valByRoundName);
-        if (a instanceof int[]) {
-          int ai[] = (int[]) a;
+        if (a instanceof int[] ai) {
           int n = roundNum % ai.length;
           sb.append(Format.format(ai[n], template));
-        } else if (a instanceof double[]) {
-          double ad[] = (double[]) a;
+        } else if (a instanceof double[] ad) {
           int n = roundNum % ad.length;
           sb.append(Format.format(2, ad[n], template));
-        } else if (a instanceof String[]) {
-          String ad[] = (String[]) a;
+        } else if (a instanceof String[] ad) {
           int n = roundNum % ad.length;
           sb.append(ad[n]);
         } else {
-          boolean ab[] = (boolean[]) a;
+          boolean[] ab = (boolean[]) a;
           int n = roundNum % ab.length;
           sb.append(Format.formatPaddLeft("" + ab[n], template));
         }
@@ -431,12 +439,16 @@ public class Config {
     return sb.toString();
   }
 
-  /** @return the round number. */
+  /**
+   * @return the round number.
+   */
   public int getRoundNumber() {
     return roundNumber;
   }
 
-  /** @return Returns the algorithmText. */
+  /**
+   * @return Returns the algorithmText.
+   */
   public String getAlgorithmText() {
     return algorithmText;
   }

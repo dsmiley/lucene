@@ -16,24 +16,21 @@
  */
 package org.apache.lucene.spatial3d.geom;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
-
 import java.util.ArrayList;
 import java.util.List;
+import org.apache.lucene.tests.geo.GeoTestUtil;
+import org.apache.lucene.tests.util.LuceneTestCase;
 import org.junit.Test;
 
-public class TestGeoBBox {
+public class TestGeoBBox extends LuceneTestCase {
 
   protected static final double DEGREES_TO_RADIANS = Math.PI / 180.0;
 
   @Test
   public void testBBoxDegenerate() {
     GeoBBox box;
-    GeoConvexPolygon cp;
     int relationship;
-    List<GeoPoint> points = new ArrayList<GeoPoint>();
+    List<GeoPoint> points = new ArrayList<>();
     points.add(
         new GeoPoint(PlanetModel.SPHERE, -49 * DEGREES_TO_RADIANS, -176 * DEGREES_TO_RADIANS));
     points.add(
@@ -483,5 +480,61 @@ public class TestGeoBBox {
     // System.out.println("XYZBounds = "+bounds+" is within? "+solid.isWithin(point)+"
     // solid="+solid);
     assertTrue(box.isWithin(point) == solid.isWithin(point));
+  }
+
+  @Test
+  public void testLUCENE10508() {
+    double minX = Geo3DUtil.fromDegrees(GeoTestUtil.nextLongitude());
+    double maxX = Geo3DUtil.fromDegrees(GeoTestUtil.nextLongitude());
+    double minY = -Math.PI * 0.5;
+    double maxY = -Math.PI * 0.5 + 1e-8;
+    assertNotNull(GeoAreaFactory.makeGeoArea(PlanetModel.SPHERE, maxY, minY, minX, maxX));
+  }
+
+  @Test
+  public void testBBoxRandomDegenerate() {
+    for (int i = 0; i < 100; i++) {
+      double minX = Geo3DUtil.fromDegrees(GeoTestUtil.nextLongitude());
+      double maxX = Math.nextUp(minX + i * Vector.MINIMUM_ANGULAR_RESOLUTION);
+      double minY = Geo3DUtil.fromDegrees(GeoTestUtil.nextLatitude());
+      double maxY = Math.nextUp(minY + i * Vector.MINIMUM_ANGULAR_RESOLUTION);
+      assertNotNull(GeoAreaFactory.makeGeoArea(PlanetModel.SPHERE, maxY, minY, minX, maxX));
+    }
+  }
+
+  @Test
+  public void testBBoxLatDegenerate() {
+    double minX = Geo3DUtil.fromDegrees(-180.0);
+    double maxX = Geo3DUtil.fromDegrees(-174.37500008381903);
+    double minY = Geo3DUtil.fromDegrees(89.99999765306711);
+    double maxY = Geo3DUtil.fromDegrees(89.99999794643372);
+    assertNotNull(GeoAreaFactory.makeGeoArea(PlanetModel.SPHERE, maxY, minY, minX, maxX));
+  }
+
+  @Test
+  public void testBBoxRandomLatDegenerate() {
+    for (int i = 0; i < 100; i++) {
+      double minX = Geo3DUtil.fromDegrees(GeoTestUtil.nextLongitude());
+      double maxX = Geo3DUtil.fromDegrees(GeoTestUtil.nextLongitude());
+      double minY = Geo3DUtil.fromDegrees(GeoTestUtil.nextLatitude());
+      double maxY = Math.nextUp(minY + i * Vector.MINIMUM_ANGULAR_RESOLUTION);
+      assertNotNull(GeoAreaFactory.makeGeoArea(PlanetModel.SPHERE, maxY, minY, minX, maxX));
+    }
+  }
+
+  @Test
+  public void testBBoxRandomLonDegenerate() {
+    for (int i = 0; i < 100; i++) {
+      double minX = Geo3DUtil.fromDegrees(GeoTestUtil.nextLongitude());
+      double maxX = Math.nextUp(minX + i * Vector.MINIMUM_ANGULAR_RESOLUTION);
+      double minY = Geo3DUtil.fromDegrees(GeoTestUtil.nextLatitude());
+      double maxY = Geo3DUtil.fromDegrees(GeoTestUtil.nextLatitude());
+      if (minY > maxY) {
+        double temp = minY;
+        minY = maxY;
+        maxY = temp;
+      }
+      assertNotNull(GeoAreaFactory.makeGeoArea(PlanetModel.SPHERE, maxY, minY, minX, maxX));
+    }
   }
 }

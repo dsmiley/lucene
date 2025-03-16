@@ -18,6 +18,7 @@ package org.apache.lucene.analysis.et;
 
 import java.io.IOException;
 import java.io.Reader;
+import java.io.UncheckedIOException;
 import org.apache.lucene.analysis.Analyzer;
 import org.apache.lucene.analysis.CharArraySet;
 import org.apache.lucene.analysis.LowerCaseFilter;
@@ -25,9 +26,11 @@ import org.apache.lucene.analysis.StopFilter;
 import org.apache.lucene.analysis.StopwordAnalyzerBase;
 import org.apache.lucene.analysis.TokenStream;
 import org.apache.lucene.analysis.Tokenizer;
+import org.apache.lucene.analysis.WordlistLoader;
 import org.apache.lucene.analysis.miscellaneous.SetKeywordMarkerFilter;
 import org.apache.lucene.analysis.snowball.SnowballFilter;
 import org.apache.lucene.analysis.standard.StandardTokenizer;
+import org.apache.lucene.util.IOUtils;
 import org.tartarus.snowball.ext.EstonianStemmer;
 
 /** {@link Analyzer} for Estonian. */
@@ -56,11 +59,15 @@ public final class EstonianAnalyzer extends StopwordAnalyzerBase {
     static {
       try {
         DEFAULT_STOP_SET =
-            loadStopwordSet(false, EstonianAnalyzer.class, DEFAULT_STOPWORD_FILE, "#");
+            WordlistLoader.getWordSet(
+                IOUtils.requireResourceNonNull(
+                    EstonianAnalyzer.class.getResourceAsStream(DEFAULT_STOPWORD_FILE),
+                    DEFAULT_STOPWORD_FILE),
+                "#");
       } catch (IOException ex) {
         // default set should always be present as it is part of the
         // distribution (JAR)
-        throw new RuntimeException("Unable to load default stopword set");
+        throw new UncheckedIOException("Unable to load default stopword set", ex);
       }
     }
   }

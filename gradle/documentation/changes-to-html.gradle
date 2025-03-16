@@ -17,10 +17,22 @@
 
 def resources = scriptResources(buildscript)
 
-configure(subprojects.findAll { it.path == ':lucene:documentation' || it.path == ':solr:documentation' }) {
+configure(project(':lucene:documentation')) {
   task changesToHtml(type: ChangesToHtmlTask) {
     siteDir = resources
     script = file("${resources}/changes2html.pl")
+  }
+
+  // Make the rendered HTML of changes available as a separate
+  // artifact for the distribution.
+  configurations {
+    changesHtml
+  }
+
+  artifacts {
+    changesHtml changesToHtml.targetDir, {
+      builtBy changesToHtml
+    }
   }
 }
 

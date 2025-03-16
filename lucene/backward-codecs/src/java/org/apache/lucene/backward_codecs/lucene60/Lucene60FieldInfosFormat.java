@@ -19,17 +19,20 @@ package org.apache.lucene.backward_codecs.lucene60;
 import java.io.IOException;
 import java.util.Collections;
 import java.util.Map;
+import org.apache.lucene.backward_codecs.store.EndiannessReverserUtil;
 import org.apache.lucene.codecs.CodecUtil;
 import org.apache.lucene.codecs.DocValuesFormat;
 import org.apache.lucene.codecs.FieldInfosFormat;
 import org.apache.lucene.index.CorruptIndexException;
+import org.apache.lucene.index.DocValuesSkipIndexType;
 import org.apache.lucene.index.DocValuesType;
 import org.apache.lucene.index.FieldInfo;
 import org.apache.lucene.index.FieldInfos;
 import org.apache.lucene.index.IndexFileNames;
 import org.apache.lucene.index.IndexOptions;
 import org.apache.lucene.index.SegmentInfo;
-import org.apache.lucene.index.VectorValues;
+import org.apache.lucene.index.VectorEncoding;
+import org.apache.lucene.index.VectorSimilarityFunction;
 import org.apache.lucene.store.ChecksumIndexInput;
 import org.apache.lucene.store.DataOutput;
 import org.apache.lucene.store.Directory;
@@ -129,7 +132,8 @@ public final class Lucene60FieldInfosFormat extends FieldInfosFormat {
       throws IOException {
     final String fileName =
         IndexFileNames.segmentFileName(segmentInfo.name, segmentSuffix, EXTENSION);
-    try (ChecksumIndexInput input = directory.openChecksumInput(fileName, context)) {
+    try (ChecksumIndexInput input =
+        EndiannessReverserUtil.openChecksumInput(directory, fileName, context)) {
       Throwable priorE = null;
       FieldInfo[] infos = null;
       try {
@@ -206,14 +210,17 @@ public final class Lucene60FieldInfosFormat extends FieldInfosFormat {
                 storePayloads,
                 indexOptions,
                 docValuesType,
+                DocValuesSkipIndexType.NONE,
                 dvGen,
                 attributes,
                 pointDataDimensionCount,
                 pointIndexDimensionCount,
                 pointNumBytes,
                 0,
-                VectorValues.SearchStrategy.NONE,
-                isSoftDeletesField);
+                VectorEncoding.FLOAT32,
+                VectorSimilarityFunction.EUCLIDEAN,
+                isSoftDeletesField,
+                false);
       } catch (IllegalStateException e) {
         throw new CorruptIndexException(
             "invalid fieldinfo for field: " + name + ", fieldNumber=" + fieldNumber, input, e);
@@ -326,7 +333,7 @@ public final class Lucene60FieldInfosFormat extends FieldInfosFormat {
       throws IOException {
     final String fileName =
         IndexFileNames.segmentFileName(segmentInfo.name, segmentSuffix, EXTENSION);
-    try (IndexOutput output = directory.createOutput(fileName, context)) {
+    try (IndexOutput output = EndiannessReverserUtil.createOutput(directory, fileName, context)) {
       CodecUtil.writeIndexHeader(
           output,
           Lucene60FieldInfosFormat.CODEC_NAME,
@@ -341,7 +348,7 @@ public final class Lucene60FieldInfosFormat extends FieldInfosFormat {
         output.writeVInt(fi.number);
 
         byte bits = 0x0;
-        if (fi.hasVectors()) bits |= STORE_TERMVECTOR;
+        if (fi.hasTermVectors()) bits |= STORE_TERMVECTOR;
         if (fi.omitsNorms()) bits |= OMIT_NORMS;
         if (fi.hasPayloads()) bits |= STORE_PAYLOADS;
         if (fi.isSoftDeletesField()) bits |= SOFT_DELETES_FIELD;

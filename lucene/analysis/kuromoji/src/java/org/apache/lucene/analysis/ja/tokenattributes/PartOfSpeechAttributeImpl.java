@@ -17,13 +17,12 @@
 package org.apache.lucene.analysis.ja.tokenattributes;
 
 import org.apache.lucene.analysis.ja.Token;
-import org.apache.lucene.analysis.ja.util.ToStringUtil;
+import org.apache.lucene.analysis.ja.dict.ToStringUtil;
 import org.apache.lucene.util.AttributeImpl;
 import org.apache.lucene.util.AttributeReflector;
 
 /** Attribute for {@link Token#getPartOfSpeech()}. */
-public class PartOfSpeechAttributeImpl extends AttributeImpl
-    implements PartOfSpeechAttribute, Cloneable {
+public class PartOfSpeechAttributeImpl extends AttributeImpl implements PartOfSpeechAttribute {
   private Token token;
 
   @Override

@@ -29,7 +29,9 @@ import java.util.Random;
 import java.util.Set;
 import org.apache.lucene.analysis.tokenattributes.CharTermAttribute;
 import org.apache.lucene.analysis.tokenattributes.PositionIncrementAttribute;
-import org.apache.lucene.util.English;
+import org.apache.lucene.tests.analysis.BaseTokenStreamTestCase;
+import org.apache.lucene.tests.analysis.MockTokenizer;
+import org.apache.lucene.tests.util.English;
 
 public class TestStopFilter extends BaseTokenStreamTestCase {
 
@@ -191,8 +193,7 @@ public class TestStopFilter extends BaseTokenStreamTestCase {
       StopFilter stopfilter, List<Integer> stopwordPositions, final int numberOfTokens)
       throws IOException {
     CharTermAttribute termAtt = stopfilter.getAttribute(CharTermAttribute.class);
-    PositionIncrementAttribute posIncrAtt =
-        stopfilter.getAttribute(PositionIncrementAttribute.class);
+    stopfilter.getAttribute(PositionIncrementAttribute.class);
     stopfilter.reset();
     log("Test stopwords positions:");
     for (int i = 0; i < numberOfTokens; i++) {

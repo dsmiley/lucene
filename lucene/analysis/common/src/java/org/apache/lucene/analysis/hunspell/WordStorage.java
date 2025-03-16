@@ -19,7 +19,8 @@ package org.apache.lucene.analysis.hunspell;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.function.BiConsumer;
+import java.util.function.Consumer;
+import org.apache.lucene.internal.hppc.IntArrayList;
 import org.apache.lucene.store.ByteArrayDataInput;
 import org.apache.lucene.store.ByteArrayDataOutput;
 import org.apache.lucene.store.DataOutput;
@@ -48,10 +49,26 @@ import org.apache.lucene.util.fst.IntSequenceOutputs;
  * The entries are stored in a contiguous byte array, identified by their offsets, using {@link
  * DataOutput#writeVInt} ()} VINT} format for compression.
  */
-class WordStorage {
+abstract class WordStorage {
+  private static final int OFFSET_BITS = 25;
+  private static final int OFFSET_MASK = (1 << OFFSET_BITS) - 1;
+  private static final int COLLISION_MASK = 0x40;
+  private static final int SUGGESTIBLE_MASK = 0x20;
+  private static final int MAX_STORED_LENGTH = SUGGESTIBLE_MASK - 1;
+  private final int maxEntryLength;
+  private final boolean hasCustomMorphData;
+
   /**
-   * A map from word's hash (modulo array's length) into the offset of the last entry in {@link
-   * #wordData} with this hash. Negated, if there's more than one entry with the same hash.
+   * A map from word's hash (modulo array's length) into an int containing:
+   *
+   * <ul>
+   *   <li>lower {@link #OFFSET_BITS}: the offset in {@link #wordData} of the last entry with this
+   *       hash
+   *   <li>the remaining highest bits: COLLISION+SUGGESTIBLE+LENGTH info for that entry, i.e. one
+   *       bit indicating whether there are other entries with the same hash, one bit indicating
+   *       whether this entry makes sense to be used in suggestions, and the length of the entry in
+   *       chars, or {@link #MAX_STORED_LENGTH} if the length exceeds that limit (next highest bits)
+   * </ul>
    */
   private final int[] hashTable;
 
@@ -63,37 +80,40 @@ class WordStorage {
    *   <li>VINT: a delta pointer to the entry for the same word without the last character.
    *       Precisely, it's the difference of this entry's start and the prefix's entry start. 0 for
    *       single-character entries
-   *   <li>Optional, for non-leaf entries only:
+   *   <li>(Optional, for hash-colliding entries only)
    *       <ul>
-   *         <li>VINT: the length of the word form data, returned from {@link #lookupWord}
-   *         <li>n * VINT: the word form data
-   *         <li>Optional, for hash-colliding entries only:
-   *             <ul>
-   *               <li>BYTE: 1 if the next collision entry has further collisions, 0 if it's the
-   *                   last of the entries with the same hash
-   *               <li>VINT: (delta) pointer to the previous entry with the same hash
-   *             </ul>
+   *         <li>BYTE: COLLISION+SUGGESTIBLE+LENGTH info (see {@link #hashTable}) for the previous
+   *             entry with the same hash
+   *         <li>VINT: (delta) pointer to the previous entry
    *       </ul>
+   *   <li>(Optional, for non-leaf entries only) VINT+: word form data, returned from {@link
+   *       #lookupWord}, preceded by its length
    * </ul>
    */
   private final byte[] wordData;
 
-  private WordStorage(int[] hashTable, byte[] wordData) {
-    this.hashTable = hashTable;
-    this.wordData = wordData;
+  WordStorage(Builder builder) throws IOException {
+    if (builder.hashTable.length > 0) {
+      assert !builder.group.isEmpty() : "WordStorage builder should be only used once";
+      builder.flushGroup();
+    }
+    this.maxEntryLength = builder.maxEntryLength;
+    this.hasCustomMorphData = builder.hasCustomMorphData;
+    this.hashTable = builder.hashTable.length == 0 ? new int[1] : builder.hashTable;
+    this.wordData = ArrayUtil.copyOfSubArray(builder.wordData, 0, builder.dataWriter.getPosition());
   }
 
   IntsRef lookupWord(char[] word, int offset, int length) {
     assert length > 0;
 
     int hash = Math.abs(CharsRef.stringHashCode(word, offset, length) % hashTable.length);
-    int pos = hashTable[hash];
-    if (pos == 0) {
+    int entryCode = hashTable[hash];
+    if (entryCode == 0) {
       return null;
     }
 
-    boolean collision = pos < 0;
-    pos = Math.abs(pos);
+    int pos = entryCode & OFFSET_MASK;
+    int mask = entryCode >>> OFFSET_BITS;
 
     char lastChar = word[offset + length - 1];
     ByteArrayDataInput in = new ByteArrayDataInput(wordData);
@@ -101,46 +121,63 @@ class WordStorage {
       in.setPosition(pos);
       char c = (char) in.readVInt();
       int prevPos = pos - in.readVInt();
-      int beforeForms = in.getPosition();
-      boolean found = c == lastChar && isSameString(word, offset, length - 1, prevPos, in);
-      if (!collision && !found) {
+
+      boolean last = !hasCollision(mask);
+      boolean mightMatch = c == lastChar && hasLength(mask, length);
+
+      if (!last) {
+        mask = in.readByte();
+        pos -= in.readVInt();
+      }
+
+      if (mightMatch) {
+        int beforeForms = in.getPosition();
+        if (isSameString(word, offset, length - 1, prevPos, in)) {
+          in.setPosition(beforeForms);
+          int formLength = in.readVInt();
+          IntsRef forms = new IntsRef(formLength);
+          readForms(forms, in, formLength);
+          return forms;
+        }
+      }
+
+      if (last) {
         return null;
       }
-
-      in.setPosition(beforeForms);
-      int formLength = in.readVInt();
-      if (found) {
-        IntsRef forms = new IntsRef(formLength);
-        readForms(forms, in, formLength);
-        return forms;
-      } else {
-        skipVInts(in, formLength);
-      }
-
-      collision = in.readByte() == 1;
-      pos -= in.readVInt();
     }
   }
 
-  private static void skipVInts(ByteArrayDataInput in, int count) {
-    for (int i = 0; i < count; ) {
-      if (in.readByte() >= 0) i++;
-    }
+  private static boolean hasCollision(int mask) {
+    return (mask & COLLISION_MASK) != 0;
+  }
+
+  private static boolean hasSuggestibleEntries(int mask) {
+    return (mask & SUGGESTIBLE_MASK) != 0;
   }
 
   /**
-   * @param maxLength the limit on the length of words to be processed, the callback won't be
-   *     invoked for the longer ones
-   * @param processor is invoked for each word. Note that the passed arguments (word and form) are
-   *     reused, so they can be modified in any way, but may not be saved for later by the processor
+   * Calls the processor for every dictionary entry with length between minLength and maxLength,
+   * both ends inclusive, and at least one suggestible alternative (without NOSUGGEST, FORBIDDENWORD
+   * or ONLYINCOMPOUND flags). Note that the callback arguments (word and forms) are reused, so they
+   * can be modified in any way, but may not be saved for later by the processor
    */
-  void processAllWords(int maxLength, BiConsumer<CharsRef, IntsRef> processor) {
+  void processSuggestibleWords(int minLength, int maxLength, Consumer<FlyweightEntry> processor) {
+    processAllWords(minLength, maxLength, true, processor);
+  }
+
+  void processAllWords(
+      int minLength, int maxLength, boolean suggestibleOnly, Consumer<FlyweightEntry> processor) {
+    assert minLength <= maxLength;
+    maxLength = Math.min(maxEntryLength, maxLength);
+
     CharsRef chars = new CharsRef(maxLength);
-    IntsRef forms = new IntsRef();
     ByteArrayDataInput in = new ByteArrayDataInput(wordData);
-    for (int pos : hashTable) {
-      boolean collision = pos < 0;
-      pos = Math.abs(pos);
+
+    var entry = new MyFlyweightEntry(chars, in);
+
+    for (int entryCode : hashTable) {
+      int pos = entryCode & OFFSET_MASK;
+      int mask = entryCode >>> OFFSET_BITS;
 
       while (pos != 0) {
         int wordStart = maxLength - 1;
@@ -149,35 +186,49 @@ class WordStorage {
         chars.chars[wordStart] = (char) in.readVInt();
         int prevPos = pos - in.readVInt();
 
-        int dataLength = in.readVInt();
-        if (forms.ints.length < dataLength) {
-          forms.ints = new int[dataLength];
-        }
-        readForms(forms, in, dataLength);
+        boolean last = !hasCollision(mask);
+        boolean mightMatch =
+            (!suggestibleOnly || hasSuggestibleEntries(mask))
+                && hasLengthInRange(mask, minLength, maxLength);
 
-        int afterForms = in.getPosition();
-
-        while (prevPos != 0 && wordStart > 0) {
-          in.setPosition(prevPos);
-          chars.chars[--wordStart] = (char) in.readVInt();
-          prevPos -= in.readVInt();
+        if (!last) {
+          mask = in.readByte();
+          pos -= in.readVInt();
         }
 
-        if (prevPos == 0) {
-          chars.offset = wordStart;
-          chars.length = maxLength - wordStart;
-          processor.accept(chars, forms);
+        if (mightMatch) {
+          entry.dataPos = in.getPosition();
+          while (prevPos != 0 && wordStart > 0) {
+            in.setPosition(prevPos);
+            chars.chars[--wordStart] = (char) in.readVInt();
+            prevPos -= in.readVInt();
+          }
+
+          if (prevPos == 0) {
+            chars.offset = wordStart;
+            chars.length = maxLength - wordStart;
+            processor.accept(entry);
+          }
         }
 
-        if (!collision) {
+        if (last) {
           break;
         }
-
-        in.setPosition(afterForms);
-        collision = in.readVInt() == 1;
-        pos -= in.readVInt();
       }
     }
+  }
+
+  private boolean hasLength(int mask, int length) {
+    int lenCode = mask & MAX_STORED_LENGTH;
+    return lenCode == MAX_STORED_LENGTH ? length >= MAX_STORED_LENGTH : lenCode == length;
+  }
+
+  private static boolean hasLengthInRange(int mask, int minLength, int maxLength) {
+    int lenCode = mask & MAX_STORED_LENGTH;
+    if (lenCode == MAX_STORED_LENGTH) {
+      return maxLength >= MAX_STORED_LENGTH;
+    }
+    return lenCode >= minLength && lenCode <= maxLength;
   }
 
   private boolean isSameString(
@@ -207,30 +258,40 @@ class WordStorage {
     private final boolean hasCustomMorphData;
     private final int[] hashTable;
     private byte[] wordData;
+    private final char[] noSuggestFlags;
     private final int[] chainLengths;
 
     private final IntsRefBuilder currentOrds = new IntsRefBuilder();
     private final List<char[]> group = new ArrayList<>();
-    private final List<Integer> morphDataIDs = new ArrayList<>();
+    private final IntArrayList morphDataIDs = new IntArrayList();
     private String currentEntry = null;
     private final int wordCount;
+    private final double hashFactor;
     private final FlagEnumerator flagEnumerator;
 
     private final ByteArrayDataOutput dataWriter;
     private int commonPrefixLength, commonPrefixPos;
     private int actualWords;
+    private int maxEntryLength;
 
     /**
      * @param wordCount an approximate number of the words in the resulting dictionary, used to
      *     pre-size the hash table. This argument can be a bit larger than the actual word count,
      *     but not smaller.
      */
-    Builder(int wordCount, boolean hasCustomMorphData, FlagEnumerator flagEnumerator) {
+    Builder(
+        int wordCount,
+        double hashFactor,
+        boolean hasCustomMorphData,
+        FlagEnumerator flagEnumerator,
+        char[] noSuggestFlags) {
       this.wordCount = wordCount;
+      this.hashFactor = hashFactor;
       this.flagEnumerator = flagEnumerator;
       this.hasCustomMorphData = hasCustomMorphData;
+      this.noSuggestFlags = noSuggestFlags;
 
-      hashTable = new int[wordCount];
+      hashTable = new int[(int) (wordCount * hashFactor)];
       wordData = new byte[wordCount * 6];
 
       dataWriter =
@@ -254,6 +315,8 @@ class WordStorage {
      * {@link String#compareTo} rules.
      */
     void add(String entry, char[] flags, int morphDataID) throws IOException {
+      maxEntryLength = Math.max(maxEntryLength, entry.length());
+
       if (!entry.equals(currentEntry)) {
         if (currentEntry != null) {
           if (entry.compareTo(currentEntry) < 0) {
@@ -288,16 +351,19 @@ class WordStorage {
 
       currentOrds.clear();
       boolean hasNonHidden = false;
+      boolean isSuggestible = false;
       for (char[] flags : group) {
-        if (!hasHiddenFlag(flags)) {
+        if (!hasFlag(flags, Dictionary.HIDDEN_FLAG)) {
           hasNonHidden = true;
-          break;
+        }
+        if (!hasNoSuggestFlag(flags)) {
+          isSuggestible = true;
         }
       }
 
       for (int i = 0; i < group.size(); i++) {
         char[] flags = group.get(i);
-        if (hasNonHidden && hasHiddenFlag(flags)) {
+        if (hasNonHidden && group.size() > 1 && hasFlag(flags, Dictionary.HIDDEN_FLAG)) {
           continue;
         }
 
@@ -317,43 +383,123 @@ class WordStorage {
       }
 
       int pos = dataWriter.getPosition();
+      if (pos >= 1 << OFFSET_BITS) {
+        throw new RuntimeException(
+            "Too much word data, please report this to dev@lucene.apache.org");
+      }
       int hash = Math.abs(currentEntry.hashCode() % hashTable.length);
-      int collision = hashTable[hash];
-      hashTable[hash] = collision == 0 ? pos : -pos;
+      int prevCode = hashTable[hash];
+
+      int mask =
+          (prevCode == 0 ? 0 : COLLISION_MASK)
+              | (isSuggestible ? SUGGESTIBLE_MASK : 0)
+              | Math.min(currentEntry.length(), MAX_STORED_LENGTH);
+      hashTable[hash] = (mask << OFFSET_BITS) | pos;
 
       if (++chainLengths[hash] > 20) {
         throw new RuntimeException(
-            "Too many collisions, please report this to dev@lucene.apache.org");
+            "Too many collisions. "
+                + ("Try a larger Dictionary#hashFactor (now " + hashFactor + "). ")
+                + "If this doesn't help, please report this to dev@lucene.apache.org");
       }
 
       // write the leaf entry for the last character
       dataWriter.writeVInt(currentEntry.charAt(currentEntry.length() - 1));
       dataWriter.writeVInt(pos - lastPos);
-      IntSequenceOutputs.getSingleton().write(currentOrds.get(), dataWriter);
-      if (collision != 0) {
-        dataWriter.writeByte(collision < 0 ? (byte) 1 : 0);
-        dataWriter.writeVInt(pos - Math.abs(collision));
+      if (prevCode != 0) {
+        dataWriter.writeByte((byte) (prevCode >>> OFFSET_BITS));
+        dataWriter.writeVInt(pos - (prevCode & OFFSET_MASK));
       }
+      IntSequenceOutputs.getSingleton().write(currentOrds.get(), dataWriter);
 
       group.clear();
       morphDataIDs.clear();
       return pos;
     }
 
-    private static boolean hasHiddenFlag(char[] flags) {
+    private boolean hasNoSuggestFlag(char[] flags) {
       for (char flag : flags) {
-        if (flag == Dictionary.HIDDEN_FLAG) {
+        if (hasFlag(noSuggestFlags, flag)) return true;
+      }
+      return false;
+    }
+
+    private static boolean hasFlag(char[] flags, char flag) {
+      for (char f : flags) {
+        if (f == flag) {
           return true;
         }
       }
       return false;
     }
+  }
 
-    WordStorage build() throws IOException {
-      assert !group.isEmpty() : "build() should be only called once";
-      flushGroup();
-      return new WordStorage(
-          hashTable, ArrayUtil.copyOfSubArray(wordData, 0, dataWriter.getPosition()));
+  abstract char caseFold(char c);
+
+  private class MyFlyweightEntry extends FlyweightEntry {
+    private final CharsRef chars;
+    private final ByteArrayDataInput in;
+    int dataPos;
+    private final IntsRef forms = new IntsRef();
+    private final CharSequence lower;
+
+    MyFlyweightEntry(CharsRef chars, ByteArrayDataInput in) {
+      this.chars = chars;
+      this.in = in;
+      lower =
+          new CharSequence() {
+            @Override
+            public int length() {
+              return chars.length;
+            }
+
+            @Override
+            public char charAt(int index) {
+              return caseFold(chars.chars[index + chars.offset]);
+            }
+
+            @Override
+            public CharSequence subSequence(int start, int end) {
+              throw new UnsupportedOperationException();
+            }
+
+            @Override
+            public String toString() {
+              throw new UnsupportedOperationException();
+            }
+          };
+    }
+
+    @Override
+    boolean hasTitleCase() {
+      return Character.isUpperCase(chars.charAt(0)) && WordCase.caseOf(chars) == WordCase.TITLE;
+    }
+
+    @Override
+    CharsRef root() {
+      return chars;
+    }
+
+    @Override
+    CharSequence lowerCaseRoot() {
+      return lower;
+    }
+
+    @Override
+    IntsRef forms() {
+      in.setPosition(dataPos);
+      int entryCount = in.readVInt() / (hasCustomMorphData ? 2 : 1);
+      if (forms.ints.length < entryCount) {
+        forms.ints = new int[entryCount];
+      }
+      for (int i = 0; i < entryCount; i++) {
+        forms.ints[i] = in.readVInt();
+        if (hasCustomMorphData) {
+          in.readVInt();
+        }
+      }
+      forms.length = entryCount;
+      return forms;
     }
   }
 }

@@ -20,7 +20,7 @@ import org.apache.lucene.util.AttributeImpl;
 import org.apache.lucene.util.AttributeReflector;
 
 /** Default implementation of {@link OffsetAttribute}. */
-public class OffsetAttributeImpl extends AttributeImpl implements OffsetAttribute, Cloneable {
+public class OffsetAttributeImpl extends AttributeImpl implements OffsetAttribute {
   private int startOffset;
   private int endOffset;
 
@@ -73,8 +73,7 @@ public class OffsetAttributeImpl extends AttributeImpl implements OffsetAttribut
       return true;
     }
 
-    if (other instanceof OffsetAttributeImpl) {
-      OffsetAttributeImpl o = (OffsetAttributeImpl) other;
+    if (other instanceof OffsetAttributeImpl o) {
       return o.startOffset == startOffset && o.endOffset == endOffset;
     }
 

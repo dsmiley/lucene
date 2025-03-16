@@ -16,7 +16,7 @@
  */
 package org.apache.lucene.search.suggest.analyzing;
 
-import static org.apache.lucene.util.automaton.Operations.DEFAULT_MAX_DETERMINIZED_STATES;
+import static org.apache.lucene.util.automaton.Operations.DEFAULT_DETERMINIZE_WORK_LIMIT;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -97,8 +97,7 @@ import org.apache.lucene.util.fst.Util.TopResults;
  *
  * @lucene.experimental
  */
-// redundant 'implements Accountable' to workaround javadocs bugs
-public class AnalyzingSuggester extends Lookup implements Accountable {
+public class AnalyzingSuggester extends Lookup {
 
   /**
    * FST&lt;Weight,Surface&gt;: input is the analyzed form, with a null byte between terms weights
@@ -165,7 +164,7 @@ public class AnalyzingSuggester extends Lookup implements Accountable {
   private boolean preservePositionIncrements;
 
   /** Number of entries the lookup was built with */
-  private long count = 0;
+  private volatile long count = 0;
 
   /**
    * Calls {@link #AnalyzingSuggester(Directory,String,Analyzer,Analyzer,int,int,int,boolean)
@@ -408,8 +407,8 @@ public class AnalyzingSuggester extends Lookup implements Accountable {
 
     String tempSortedFileName = null;
 
-    count = 0;
-    byte buffer[] = new byte[8];
+    long newCount = 0;
+    byte[] buffer = new byte[8];
     try {
       ByteArrayDataOutput output = new ByteArrayDataOutput(buffer);
 
@@ -417,7 +416,7 @@ public class AnalyzingSuggester extends Lookup implements Accountable {
         LimitedFiniteStringsIterator finiteStrings =
             new LimitedFiniteStringsIterator(toAutomaton(surfaceForm, ts2a), maxGraphExpansions);
 
-        for (IntsRef string; (string = finiteStrings.next()) != null; count++) {
+        for (IntsRef string; (string = finiteStrings.next()) != null; newCount++) {
           Util.toBytesRef(string, scratch);
 
           // length of the analyzed text (FST input)
@@ -453,7 +452,7 @@ public class AnalyzingSuggester extends Lookup implements Accountable {
             payload = null;
           }
 
-          buffer = ArrayUtil.grow(buffer, requiredLength);
+          buffer = ArrayUtil.growNoCopy(buffer, requiredLength);
 
           output.reset(buffer);
 
@@ -495,13 +494,12 @@ public class AnalyzingSuggester extends Lookup implements Accountable {
 
       reader =
           new OfflineSorter.ByteSequencesReader(
-              tempDir.openChecksumInput(tempSortedFileName, IOContext.READONCE),
-              tempSortedFileName);
+              tempDir.openChecksumInput(tempSortedFileName), tempSortedFileName);
 
       PairOutputs<Long, BytesRef> outputs =
           new PairOutputs<>(PositiveIntOutputs.getSingleton(), ByteSequenceOutputs.getSingleton());
       FSTCompiler<Pair<Long, BytesRef>> fstCompiler =
-          new FSTCompiler<>(FST.INPUT_TYPE.BYTE1, outputs);
+          new FSTCompiler.Builder<>(FST.INPUT_TYPE.BYTE1, outputs).build();
 
       // Build FST:
       BytesRefBuilder previousAnalyzed = null;
@@ -524,7 +522,7 @@ public class AnalyzingSuggester extends Lookup implements Accountable {
         }
         input.reset(bytes.bytes, bytes.offset, bytes.length);
         short analyzedLength = input.readShort();
-        analyzed.grow(analyzedLength + 2);
+        analyzed.growNoCopy(analyzedLength + 2);
         input.readBytes(analyzed.bytes(), 0, analyzedLength);
         analyzed.setLength(analyzedLength);
 
@@ -588,7 +586,8 @@ public class AnalyzingSuggester extends Lookup implements Accountable {
           fstCompiler.add(scratchInts.get(), outputs.newPair(cost, br));
         }
       }
-      fst = fstCompiler.compile();
+      fst = FST.fromFSTReader(fstCompiler.compile(), fstCompiler.getFSTReader());
+      count = newCount;
 
       // Util.dotToFile(fst, "/tmp/suggest.dot");
     } finally {
@@ -613,12 +612,9 @@ public class AnalyzingSuggester extends Lookup implements Accountable {
   @Override
   public boolean load(DataInput input) throws IOException {
     count = input.readVLong();
-    this.fst =
-        new FST<>(
-            input,
-            input,
-            new PairOutputs<>(
-                PositiveIntOutputs.getSingleton(), ByteSequenceOutputs.getSingleton()));
+    PairOutputs<Long, BytesRef> outputs =
+        new PairOutputs<>(PositiveIntOutputs.getSingleton(), ByteSequenceOutputs.getSingleton());
+    this.fst = new FST<>(FST.readMetadata(input, outputs), input);
     maxAnalyzedPathsForOneInput = input.readVInt();
     hasPayloads = input.readByte() == 1;
     return true;
@@ -721,7 +717,7 @@ public class AnalyzingSuggester extends Lookup implements Accountable {
 
         int count = 0;
         for (FSTUtil.Path<Pair<Long, BytesRef>> path : prefixPaths) {
-          if (fst.findTargetArc(END_BYTE, path.fstNode, scratchArc, bytesReader) != null) {
+          if (fst.findTargetArc(END_BYTE, path.fstNode(), scratchArc, bytesReader) != null) {
             // This node has END_BYTE arc leaving, meaning it's an
             // "exact" match:
             count++;
@@ -744,11 +740,14 @@ public class AnalyzingSuggester extends Lookup implements Accountable {
         // pruned our exact match from one of these nodes
         // ...:
         for (FSTUtil.Path<Pair<Long, BytesRef>> path : prefixPaths) {
-          if (fst.findTargetArc(END_BYTE, path.fstNode, scratchArc, bytesReader) != null) {
+          if (fst.findTargetArc(END_BYTE, path.fstNode(), scratchArc, bytesReader) != null) {
             // This node has END_BYTE arc leaving, meaning it's an
             // "exact" match:
             searcher.addStartPaths(
-                scratchArc, fst.outputs.add(path.output, scratchArc.output()), false, path.input);
+                scratchArc,
+                fst.outputs.add(path.output(), scratchArc.output()),
+                false,
+                path.input());
           }
         }
 
@@ -768,9 +767,9 @@ public class AnalyzingSuggester extends Lookup implements Accountable {
         // nodes we have and the
         // maxSurfaceFormsPerAnalyzedForm:
         for (Result<Pair<Long, BytesRef>> completion : completions) {
-          BytesRef output2 = completion.output.output2;
+          BytesRef output2 = completion.output().output2;
           if (sameSurfaceForm(utf8Key, output2)) {
-            results.add(getLookupResult(completion.output.output1, output2, spare));
+            results.add(getLookupResult(completion.output().output1, output2, spare));
             break;
           }
         }
@@ -818,7 +817,7 @@ public class AnalyzingSuggester extends Lookup implements Accountable {
       prefixPaths = getFullPrefixPaths(prefixPaths, lookupAutomaton, fst);
 
       for (FSTUtil.Path<Pair<Long, BytesRef>> path : prefixPaths) {
-        searcher.addStartPaths(path.fstNode, path.output, true, path.input);
+        searcher.addStartPaths(path.fstNode(), path.output(), true, path.input());
       }
 
       TopResults<Pair<Long, BytesRef>> completions = searcher.search();
@@ -827,7 +826,7 @@ public class AnalyzingSuggester extends Lookup implements Accountable {
       for (Result<Pair<Long, BytesRef>> completion : completions) {
 
         LookupResult result =
-            getLookupResult(completion.output.output1, completion.output.output2, spare);
+            getLookupResult(completion.output().output1, completion.output().output2, spare);
 
         // TODO: for fuzzy case would be nice to return
         // how many edits were required
@@ -877,9 +876,6 @@ public class AnalyzingSuggester extends Lookup implements Accountable {
     automaton = replaceSep(automaton);
     automaton = convertAutomaton(automaton);
 
-    // TODO: LUCENE-5660 re-enable this once we disallow massive suggestion strings
-    // assert SpecialOperations.isFinite(automaton);
-
     // Get all paths from the automaton (there can be
     // more than one path, eg if the analyzer created a
     // graph using SynFilter or WDF):
@@ -898,7 +894,7 @@ public class AnalyzingSuggester extends Lookup implements Accountable {
 
     // TODO: we can optimize this somewhat by determinizing
     // while we convert
-    automaton = Operations.determinize(automaton, DEFAULT_MAX_DETERMINIZED_STATES);
+    automaton = Operations.determinize(automaton, DEFAULT_DETERMINIZE_WORK_LIMIT);
     return automaton;
   }
 

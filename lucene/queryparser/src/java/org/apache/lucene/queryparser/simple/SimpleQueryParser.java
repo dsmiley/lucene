@@ -103,27 +103,37 @@ import org.apache.lucene.util.automaton.LevenshteinAutomata;
 public class SimpleQueryParser extends QueryBuilder {
   /** Map of fields to query against with their weights */
   protected final Map<String, Float> weights;
+
   /** flags to the parser (to turn features on/off) */
   protected final int flags;
 
   /** Enables {@code AND} operator (+) */
   public static final int AND_OPERATOR = 1 << 0;
+
   /** Enables {@code NOT} operator (-) */
   public static final int NOT_OPERATOR = 1 << 1;
+
   /** Enables {@code OR} operator (|) */
   public static final int OR_OPERATOR = 1 << 2;
+
   /** Enables {@code PREFIX} operator (*) */
   public static final int PREFIX_OPERATOR = 1 << 3;
+
   /** Enables {@code PHRASE} operator (") */
   public static final int PHRASE_OPERATOR = 1 << 4;
+
   /** Enables {@code PRECEDENCE} operators: {@code (} and {@code )} */
   public static final int PRECEDENCE_OPERATORS = 1 << 5;
+
   /** Enables {@code ESCAPE} operator (\) */
   public static final int ESCAPE_OPERATOR = 1 << 6;
+
   /** Enables {@code WHITESPACE} operators: ' ' '\n' '\r' '\t' */
   public static final int WHITESPACE_OPERATOR = 1 << 7;
+
   /** Enables {@code FUZZY} operators: (~) on single terms */
   public static final int FUZZY_OPERATOR = 1 << 8;
+
   /** Enables {@code NEAR} operators: (~) on phrases */
   public static final int NEAR_OPERATOR = 1 << 9;
 
@@ -152,8 +162,8 @@ public class SimpleQueryParser extends QueryBuilder {
       return new MatchAllDocsQuery();
     }
 
-    char data[] = queryText.toCharArray();
-    char buffer[] = new char[data.length];
+    char[] data = queryText.toCharArray();
+    char[] buffer = new char[data.length];
 
     State state = new State(data, buffer, 0, data.length);
     parseSubQuery(state);
@@ -485,7 +495,7 @@ public class SimpleQueryParser extends QueryBuilder {
    * @return slop/edit distance, 0 in the case of non-parsing slop/edit string
    */
   private int parseFuzziness(State state) {
-    char slopText[] = new char[state.length];
+    char[] slopText = new char[state.length];
     int slopLength = 0;
 
     if (state.data[state.index] == '~') {
@@ -504,13 +514,15 @@ public class SimpleQueryParser extends QueryBuilder {
       int fuzziness = 0;
       try {
         String fuzzyString = new String(slopText, 0, slopLength);
-        if ("".equals(fuzzyString)) {
+        if (fuzzyString.isEmpty()) {
           // Use automatic fuzziness, ~2
           fuzziness = 2;
         } else {
           fuzziness = Integer.parseInt(fuzzyString);
         }
-      } catch (NumberFormatException e) {
+      } catch (
+          @SuppressWarnings("unused")
+          NumberFormatException e) {
         // swallow number format exceptions parsing fuzziness
       }
       // negative -> 0
@@ -608,7 +620,7 @@ public class SimpleQueryParser extends QueryBuilder {
     if (bq.clauses().isEmpty()) {
       return null;
     } else if (bq.clauses().size() == 1) {
-      return bq.clauses().iterator().next().getQuery();
+      return bq.clauses().iterator().next().query();
     } else {
       return bq;
     }

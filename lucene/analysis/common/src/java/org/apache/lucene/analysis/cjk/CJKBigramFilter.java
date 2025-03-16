@@ -26,6 +26,7 @@ import org.apache.lucene.analysis.tokenattributes.PositionIncrementAttribute;
 import org.apache.lucene.analysis.tokenattributes.PositionLengthAttribute;
 import org.apache.lucene.analysis.tokenattributes.TypeAttribute;
 import org.apache.lucene.util.ArrayUtil;
+import org.apache.lucene.util.IgnoreRandomChains;
 
 /**
  * Forms bigrams of CJK terms that are generated from StandardTokenizer or ICUTokenizer.
@@ -47,19 +48,24 @@ import org.apache.lucene.util.ArrayUtil;
  *
  * <p>In all cases, all non-CJK input is passed thru unmodified.
  */
+@IgnoreRandomChains(reason = "LUCENE-8092: doesn't handle graph inputs")
 public final class CJKBigramFilter extends TokenFilter {
   // configuration
   /** bigram flag for Han Ideographs */
   public static final int HAN = 1;
+
   /** bigram flag for Hiragana */
   public static final int HIRAGANA = 2;
+
   /** bigram flag for Katakana */
   public static final int KATAKANA = 4;
+
   /** bigram flag for Hangul */
   public static final int HANGUL = 8;
 
   /** when we emit a bigram, it's then marked as this type */
   public static final String DOUBLE_TYPE = "<DOUBLE>";
+
   /** when we emit a unigram, it's then marked as this type */
   public static final String SINGLE_TYPE = "<SINGLE>";
 
@@ -93,9 +99,9 @@ public final class CJKBigramFilter extends TokenFilter {
   private final PositionLengthAttribute posLengthAtt = addAttribute(PositionLengthAttribute.class);
 
   // buffers containing codepoint and offsets in parallel
-  int buffer[] = new int[8];
-  int startOffset[] = new int[8];
-  int endOffset[] = new int[8];
+  int[] buffer = new int[8];
+  int[] startOffset = new int[8];
+  int[] endOffset = new int[8];
   // length of valid buffer
   int bufferLen;
   // current buffer index
@@ -264,7 +270,7 @@ public final class CJKBigramFilter extends TokenFilter {
       index -= last;
     }
 
-    char termBuffer[] = termAtt.buffer();
+    char[] termBuffer = termAtt.buffer();
     int len = termAtt.length();
     int start = offsetAtt.startOffset();
     int end = offsetAtt.endOffset();
@@ -300,7 +306,7 @@ public final class CJKBigramFilter extends TokenFilter {
    */
   private void flushBigram() {
     clearAttributes();
-    char termBuffer[] =
+    char[] termBuffer =
         termAtt.resizeBuffer(4); // maximum bigram length in code units (2 supplementaries)
     int len1 = Character.toChars(buffer[index], termBuffer, 0);
     int len2 = len1 + Character.toChars(buffer[index + 1], termBuffer, len1);
@@ -322,7 +328,7 @@ public final class CJKBigramFilter extends TokenFilter {
    */
   private void flushUnigram() {
     clearAttributes();
-    char termBuffer[] = termAtt.resizeBuffer(2); // maximum unigram length (2 surrogates)
+    char[] termBuffer = termAtt.resizeBuffer(2); // maximum unigram length (2 surrogates)
     int len = Character.toChars(buffer[index], termBuffer, 0);
     termAtt.setLength(len);
     offsetAtt.setOffset(startOffset[index], endOffset[index]);

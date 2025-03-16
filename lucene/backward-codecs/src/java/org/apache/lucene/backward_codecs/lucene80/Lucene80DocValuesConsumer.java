@@ -27,6 +27,9 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+import org.apache.lucene.backward_codecs.packed.LegacyDirectMonotonicWriter;
+import org.apache.lucene.backward_codecs.packed.LegacyDirectWriter;
+import org.apache.lucene.backward_codecs.store.EndiannessReverserUtil;
 import org.apache.lucene.codecs.CodecUtil;
 import org.apache.lucene.codecs.DocValuesConsumer;
 import org.apache.lucene.codecs.DocValuesProducer;
@@ -58,11 +61,9 @@ import org.apache.lucene.util.MathUtil;
 import org.apache.lucene.util.StringHelper;
 import org.apache.lucene.util.compress.LZ4;
 import org.apache.lucene.util.compress.LZ4.FastCompressionHashTable;
-import org.apache.lucene.util.packed.DirectMonotonicWriter;
-import org.apache.lucene.util.packed.DirectWriter;
 
 /** writer for {@link Lucene80DocValuesFormat} */
-final class Lucene80DocValuesConsumer extends DocValuesConsumer implements Closeable {
+final class Lucene80DocValuesConsumer extends DocValuesConsumer {
 
   final Lucene80DocValuesFormat.Mode mode;
   IndexOutput data, meta;
@@ -89,7 +90,7 @@ final class Lucene80DocValuesConsumer extends DocValuesConsumer implements Close
       String dataName =
           IndexFileNames.segmentFileName(
               state.segmentInfo.name, state.segmentSuffix, dataExtension);
-      data = state.directory.createOutput(dataName, state.context);
+      data = EndiannessReverserUtil.createOutput(state.directory, dataName, state.context);
       CodecUtil.writeIndexHeader(
           data,
           dataCodec,
@@ -99,7 +100,7 @@ final class Lucene80DocValuesConsumer extends DocValuesConsumer implements Close
       String metaName =
           IndexFileNames.segmentFileName(
               state.segmentInfo.name, state.segmentSuffix, metaExtension);
-      meta = state.directory.createOutput(metaName, state.context);
+      meta = EndiannessReverserUtil.createOutput(state.directory, metaName, state.context);
       CodecUtil.writeIndexHeader(
           meta,
           metaCodec,
@@ -177,7 +178,7 @@ final class Lucene80DocValuesConsumer extends DocValuesConsumer implements Close
     /** Update the required space. */
     void finish() {
       if (max > min) {
-        spaceInBits += DirectWriter.unsignedBitsRequired(max - min) * numValues;
+        spaceInBits += LegacyDirectWriter.unsignedBitsRequired(max - min) * numValues;
       }
     }
 
@@ -263,9 +264,9 @@ final class Lucene80DocValuesConsumer extends DocValuesConsumer implements Close
     } else {
       if (uniqueValues != null
           && uniqueValues.size() > 1
-          && DirectWriter.unsignedBitsRequired(uniqueValues.size() - 1)
-              < DirectWriter.unsignedBitsRequired((max - min) / gcd)) {
-        numBitsPerValue = DirectWriter.unsignedBitsRequired(uniqueValues.size() - 1);
+          && LegacyDirectWriter.unsignedBitsRequired(uniqueValues.size() - 1)
+              < LegacyDirectWriter.unsignedBitsRequired((max - min) / gcd)) {
+        numBitsPerValue = LegacyDirectWriter.unsignedBitsRequired(uniqueValues.size() - 1);
         final Long[] sortedUniqueValues = uniqueValues.toArray(new Long[0]);
         Arrays.sort(sortedUniqueValues);
         meta.writeInt(sortedUniqueValues.length); // tablesize
@@ -287,11 +288,11 @@ final class Lucene80DocValuesConsumer extends DocValuesConsumer implements Close
           numBitsPerValue = 0xFF;
           meta.writeInt(-2 - NUMERIC_BLOCK_SHIFT); // tablesize
         } else {
-          numBitsPerValue = DirectWriter.unsignedBitsRequired((max - min) / gcd);
+          numBitsPerValue = LegacyDirectWriter.unsignedBitsRequired((max - min) / gcd);
           if (gcd == 1
               && min > 0
-              && DirectWriter.unsignedBitsRequired(max)
-                  == DirectWriter.unsignedBitsRequired(max - min)) {
+              && LegacyDirectWriter.unsignedBitsRequired(max)
+                  == LegacyDirectWriter.unsignedBitsRequired(max - min)) {
             min = 0;
           }
           meta.writeInt(-1); // tablesize
@@ -324,7 +325,7 @@ final class Lucene80DocValuesConsumer extends DocValuesConsumer implements Close
       long gcd,
       Map<Long, Integer> encode)
       throws IOException {
-    DirectWriter writer = DirectWriter.getInstance(data, numValues, numBitsPerValue);
+    LegacyDirectWriter writer = LegacyDirectWriter.getInstance(data, numValues, numBitsPerValue);
     for (int doc = values.nextDoc(); doc != DocIdSetIterator.NO_MORE_DOCS; doc = values.nextDoc()) {
       for (int i = 0, count = values.docValueCount(); i < count; ++i) {
         long v = values.nextValue();
@@ -387,10 +388,10 @@ final class Lucene80DocValuesConsumer extends DocValuesConsumer implements Close
       data.writeByte((byte) 0);
       data.writeLong(min);
     } else {
-      final int bitsPerValue = DirectWriter.unsignedBitsRequired(max - min);
+      final int bitsPerValue = LegacyDirectWriter.unsignedBitsRequired((max - min) / gcd);
       buffer.reset();
       assert buffer.size() == 0;
-      final DirectWriter w = DirectWriter.getInstance(buffer, length, bitsPerValue);
+      final LegacyDirectWriter w = LegacyDirectWriter.getInstance(buffer, length, bitsPerValue);
       for (int i = 0; i < length; ++i) {
         w.add((values[i] - min) / gcd);
       }
@@ -417,8 +418,8 @@ final class Lucene80DocValuesConsumer extends DocValuesConsumer implements Close
 
     public CompressedBinaryBlockWriter() throws IOException {
       tempBinaryOffsets =
-          state.directory.createTempOutput(
-              state.segmentInfo.name, "binary_pointers", state.context);
+          EndiannessReverserUtil.createTempOutput(
+              state.directory, state.segmentInfo.name, "binary_pointers", state.context);
       boolean success = false;
       try {
         CodecUtil.writeHeader(
@@ -475,7 +476,8 @@ final class Lucene80DocValuesConsumer extends DocValuesConsumer implements Close
           }
         }
         maxUncompressedBlockLength = Math.max(maxUncompressedBlockLength, uncompressedBlockLength);
-        LZ4.compress(block, 0, uncompressedBlockLength, data, ht);
+        LZ4.compress(
+            block, 0, uncompressedBlockLength, EndiannessReverserUtil.wrapDataOutput(data), ht);
         numDocsInCurrentBlock = 0;
         // Ensure initialized with zeroes because full array is always written
         Arrays.fill(docLengths, 0);
@@ -502,7 +504,8 @@ final class Lucene80DocValuesConsumer extends DocValuesConsumer implements Close
       IOUtils.close(tempBinaryOffsets);
       // write the compressed block offsets info to the meta file by reading from temp file
       try (ChecksumIndexInput filePointersIn =
-          state.directory.openChecksumInput(tempBinaryOffsets.getName(), IOContext.READONCE)) {
+          EndiannessReverserUtil.openChecksumInput(
+              state.directory, tempBinaryOffsets.getName(), IOContext.READONCE)) {
         CodecUtil.checkHeader(
             filePointersIn,
             Lucene80DocValuesFormat.META_CODEC + "FilePointers",
@@ -510,8 +513,8 @@ final class Lucene80DocValuesConsumer extends DocValuesConsumer implements Close
             Lucene80DocValuesFormat.VERSION_CURRENT);
         Throwable priorE = null;
         try {
-          final DirectMonotonicWriter filePointers =
-              DirectMonotonicWriter.getInstance(
+          final LegacyDirectMonotonicWriter filePointers =
+              LegacyDirectMonotonicWriter.getInstance(
                   meta, data, totalChunks, DIRECT_MONOTONIC_BLOCK_SHIFT);
           long fp = blockAddressesStart;
           for (int i = 0; i < totalChunks; ++i) {
@@ -609,8 +612,8 @@ final class Lucene80DocValuesConsumer extends DocValuesConsumer implements Close
       meta.writeLong(start);
       meta.writeVInt(DIRECT_MONOTONIC_BLOCK_SHIFT);
 
-      final DirectMonotonicWriter writer =
-          DirectMonotonicWriter.getInstance(
+      final LegacyDirectMonotonicWriter writer =
+          LegacyDirectMonotonicWriter.getInstance(
               meta, data, numDocsWithField + 1, DIRECT_MONOTONIC_BLOCK_SHIFT);
       long addr = 0;
       writer.add(addr);
@@ -721,11 +724,12 @@ final class Lucene80DocValuesConsumer extends DocValuesConsumer implements Close
       meta.writeLong(0L); // ordsOffset
       meta.writeLong(0L); // ordsLength
     } else {
-      int numberOfBitsPerOrd = DirectWriter.unsignedBitsRequired(values.getValueCount() - 1);
+      int numberOfBitsPerOrd = LegacyDirectWriter.unsignedBitsRequired(values.getValueCount() - 1);
       meta.writeByte((byte) numberOfBitsPerOrd); // bitsPerValue
       long start = data.getFilePointer();
       meta.writeLong(start); // ordsOffset
-      DirectWriter writer = DirectWriter.getInstance(data, numDocsWithField, numberOfBitsPerOrd);
+      LegacyDirectWriter writer =
+          LegacyDirectWriter.getInstance(data, numDocsWithField, numberOfBitsPerOrd);
       values = valuesProducer.getSorted(field);
       for (int doc = values.nextDoc();
           doc != DocIdSetIterator.NO_MORE_DOCS;
@@ -762,8 +766,8 @@ final class Lucene80DocValuesConsumer extends DocValuesConsumer implements Close
     ByteBuffersIndexOutput addressOutput =
         new ByteBuffersIndexOutput(addressBuffer, "temp", "temp");
     long numBlocks = (size + blockMask) >>> shift;
-    DirectMonotonicWriter writer =
-        DirectMonotonicWriter.getInstance(
+    LegacyDirectMonotonicWriter writer =
+        LegacyDirectMonotonicWriter.getInstance(
             meta, addressOutput, numBlocks, DIRECT_MONOTONIC_BLOCK_SHIFT);
 
     BytesRefBuilder previous = new BytesRefBuilder();
@@ -844,7 +848,8 @@ final class Lucene80DocValuesConsumer extends DocValuesConsumer implements Close
     int uncompressedLength = bufferedOutput.getPosition();
     data.writeVInt(uncompressedLength);
     long before = data.getFilePointer();
-    LZ4.compress(termsDictBuffer, 0, uncompressedLength, data, ht);
+    LZ4.compress(
+        termsDictBuffer, 0, uncompressedLength, EndiannessReverserUtil.wrapDataOutput(data), ht);
     int compressedLength = (int) (data.getFilePointer() - before);
     // Block length will be used for creating buffer for decompression, one corner case is that
     // compressed length might be bigger than un-compressed length, so just return the bigger one.
@@ -870,11 +875,11 @@ final class Lucene80DocValuesConsumer extends DocValuesConsumer implements Close
             + ((size + Lucene80DocValuesFormat.TERMS_DICT_REVERSE_INDEX_MASK)
                 >>> Lucene80DocValuesFormat.TERMS_DICT_REVERSE_INDEX_SHIFT);
     ByteBuffersDataOutput addressBuffer = new ByteBuffersDataOutput();
-    DirectMonotonicWriter writer;
+    LegacyDirectMonotonicWriter writer;
     try (ByteBuffersIndexOutput addressOutput =
         new ByteBuffersIndexOutput(addressBuffer, "temp", "temp")) {
       writer =
-          DirectMonotonicWriter.getInstance(
+          LegacyDirectMonotonicWriter.getInstance(
               meta, addressOutput, numBlocks, DIRECT_MONOTONIC_BLOCK_SHIFT);
       TermsEnum iterator = values.termsEnum();
       BytesRefBuilder previous = new BytesRefBuilder();
@@ -926,8 +931,8 @@ final class Lucene80DocValuesConsumer extends DocValuesConsumer implements Close
       meta.writeLong(start);
       meta.writeVInt(DIRECT_MONOTONIC_BLOCK_SHIFT);
 
-      final DirectMonotonicWriter addressesWriter =
-          DirectMonotonicWriter.getInstance(
+      final LegacyDirectMonotonicWriter addressesWriter =
+          LegacyDirectMonotonicWriter.getInstance(
               meta, data, numDocsWithField + 1L, DIRECT_MONOTONIC_BLOCK_SHIFT);
       long addr = 0;
       addressesWriter.add(addr);
@@ -954,11 +959,7 @@ final class Lucene80DocValuesConsumer extends DocValuesConsumer implements Close
     long numOrds = 0;
     for (int doc = values.nextDoc(); doc != DocIdSetIterator.NO_MORE_DOCS; doc = values.nextDoc()) {
       numDocsWithField++;
-      for (long ord = values.nextOrd();
-          ord != SortedSetDocValues.NO_MORE_ORDS;
-          ord = values.nextOrd()) {
-        numOrds++;
-      }
+      numOrds += values.docValueCount();
     }
 
     if (numDocsWithField == numOrds) {
@@ -993,17 +994,15 @@ final class Lucene80DocValuesConsumer extends DocValuesConsumer implements Close
       meta.writeByte(IndexedDISI.DEFAULT_DENSE_RANK_POWER);
     }
 
-    int numberOfBitsPerOrd = DirectWriter.unsignedBitsRequired(values.getValueCount() - 1);
+    int numberOfBitsPerOrd = LegacyDirectWriter.unsignedBitsRequired(values.getValueCount() - 1);
     meta.writeByte((byte) numberOfBitsPerOrd); // bitsPerValue
     long start = data.getFilePointer();
     meta.writeLong(start); // ordsOffset
-    DirectWriter writer = DirectWriter.getInstance(data, numOrds, numberOfBitsPerOrd);
+    LegacyDirectWriter writer = LegacyDirectWriter.getInstance(data, numOrds, numberOfBitsPerOrd);
     values = valuesProducer.getSortedSet(field);
     for (int doc = values.nextDoc(); doc != DocIdSetIterator.NO_MORE_DOCS; doc = values.nextDoc()) {
-      for (long ord = values.nextOrd();
-          ord != SortedSetDocValues.NO_MORE_ORDS;
-          ord = values.nextOrd()) {
-        writer.add(ord);
+      for (int i = 0; i < values.docValueCount(); i++) {
+        writer.add(values.nextOrd());
       }
     }
     writer.finish();
@@ -1014,18 +1013,14 @@ final class Lucene80DocValuesConsumer extends DocValuesConsumer implements Close
     meta.writeLong(start); // addressesOffset
     meta.writeVInt(DIRECT_MONOTONIC_BLOCK_SHIFT);
 
-    final DirectMonotonicWriter addressesWriter =
-        DirectMonotonicWriter.getInstance(
+    final LegacyDirectMonotonicWriter addressesWriter =
+        LegacyDirectMonotonicWriter.getInstance(
             meta, data, numDocsWithField + 1, DIRECT_MONOTONIC_BLOCK_SHIFT);
     long addr = 0;
     addressesWriter.add(addr);
     values = valuesProducer.getSortedSet(field);
     for (int doc = values.nextDoc(); doc != DocIdSetIterator.NO_MORE_DOCS; doc = values.nextDoc()) {
-      values.nextOrd();
-      addr++;
-      while (values.nextOrd() != SortedSetDocValues.NO_MORE_ORDS) {
-        addr++;
-      }
+      addr += values.docValueCount();
       addressesWriter.add(addr);
     }
     addressesWriter.finish();

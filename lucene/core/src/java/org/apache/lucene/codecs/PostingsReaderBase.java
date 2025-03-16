@@ -24,12 +24,11 @@ import org.apache.lucene.index.PostingsEnum;
 import org.apache.lucene.index.SegmentReadState;
 import org.apache.lucene.store.DataInput;
 import org.apache.lucene.store.IndexInput;
-import org.apache.lucene.util.Accountable;
 
 /**
  * The core terms dictionaries (BlockTermsReader, BlockTreeTermsReader) interact with a single
  * instance of this class to manage creation of {@link org.apache.lucene.index.PostingsEnum} and
- * {@link org.apache.lucene.index.PostingsEnum} instances. It provides an IndexInput (termsIn) where
+ * {@link org.apache.lucene.index.ImpactsEnum} instances. It provides an IndexInput (termsIn) where
  * this class may read any previously stored data that it had written in its corresponding {@link
  * PostingsWriterBase} at indexing time.
  *
@@ -41,7 +40,7 @@ import org.apache.lucene.util.Accountable;
 // TODO: find a better name; this defines the API that the
 // terms dict impls use to talk to a postings impl.
 // TermsDict + PostingsReader/WriterBase == PostingsConsumer/Producer
-public abstract class PostingsReaderBase implements Closeable, Accountable {
+public abstract class PostingsReaderBase implements Closeable {
 
   /** Sole constructor. (For invocation by subclass constructors, typically implicit.) */
   protected PostingsReaderBase() {}

@@ -17,7 +17,7 @@
 package org.apache.lucene.analysis.cn.smart;
 
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
+import java.io.UncheckedIOException;
 import java.util.Set;
 import org.apache.lucene.analysis.Analyzer;
 import org.apache.lucene.analysis.CharArraySet;
@@ -77,7 +77,7 @@ public final class SmartChineseAnalyzer extends Analyzer {
       } catch (IOException ex) {
         // default set should always be present as it is part of the
         // distribution (JAR)
-        throw new RuntimeException("Unable to load default stopword set");
+        throw new UncheckedIOException("Unable to load default stopword set", ex);
       }
     }
 
@@ -85,8 +85,9 @@ public final class SmartChineseAnalyzer extends Analyzer {
       // make sure it is unmodifiable as we expose it in the outer class
       return CharArraySet.unmodifiableSet(
           WordlistLoader.getWordSet(
-              IOUtils.getDecodingReader(
-                  SmartChineseAnalyzer.class, DEFAULT_STOPWORD_FILE, StandardCharsets.UTF_8),
+              IOUtils.requireResourceNonNull(
+                  SmartChineseAnalyzer.class.getResourceAsStream(DEFAULT_STOPWORD_FILE),
+                  DEFAULT_STOPWORD_FILE),
               STOPWORD_FILE_COMMENT));
     }
   }

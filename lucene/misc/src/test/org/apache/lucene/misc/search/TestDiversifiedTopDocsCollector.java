@@ -24,13 +24,11 @@ import org.apache.lucene.document.Field;
 import org.apache.lucene.document.FloatDocValuesField;
 import org.apache.lucene.document.SortedDocValuesField;
 import org.apache.lucene.document.StoredField;
-import org.apache.lucene.index.BinaryDocValues;
 import org.apache.lucene.index.DocValues;
 import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.index.MultiDocValues;
 import org.apache.lucene.index.NumericDocValues;
-import org.apache.lucene.index.RandomIndexWriter;
 import org.apache.lucene.index.SortedDocValues;
 import org.apache.lucene.index.Term;
 import org.apache.lucene.search.BooleanClause;
@@ -45,12 +43,14 @@ import org.apache.lucene.search.QueryVisitor;
 import org.apache.lucene.search.ScoreDoc;
 import org.apache.lucene.search.ScoreMode;
 import org.apache.lucene.search.Scorer;
+import org.apache.lucene.search.ScorerSupplier;
 import org.apache.lucene.search.TermQuery;
 import org.apache.lucene.search.TopDocs;
 import org.apache.lucene.search.Weight;
 import org.apache.lucene.store.Directory;
+import org.apache.lucene.tests.index.RandomIndexWriter;
+import org.apache.lucene.tests.util.LuceneTestCase;
 import org.apache.lucene.util.BytesRef;
-import org.apache.lucene.util.LuceneTestCase;
 
 /**
  * Demonstrates an application of the {@link DiversifiedTopDocsCollector} in assembling a collection
@@ -190,7 +190,7 @@ public class TestDiversifiedTopDocsCollector extends LuceneTestCase {
       extends DiversifiedTopDocsCollector {
 
     private final String field;
-    private BinaryDocValues vals;
+    private SortedDocValues vals;
 
     public HashedDocValuesDiversifiedCollector(int size, int maxHitsPerKey, String field) {
       super(size, maxHitsPerKey);
@@ -227,20 +227,20 @@ public class TestDiversifiedTopDocsCollector extends LuceneTestCase {
 
         @Override
         public long longValue() throws IOException {
-          return vals == null ? -1 : vals.binaryValue().hashCode();
+          return vals == null ? -1 : vals.lookupOrd(vals.ordValue()).hashCode();
         }
       };
     }
 
     @Override
     public LeafCollector getLeafCollector(LeafReaderContext context) throws IOException {
-      this.vals = DocValues.getBinary(context.reader(), field);
+      this.vals = DocValues.getSorted(context.reader(), field);
       return super.getLeafCollector(context);
     }
   }
 
   // Test data - format is artist, song, weeks at top of charts
-  private static String[] hitsOfThe60s = {
+  private static final String[] hitsOfThe60s = {
     "1966\tSPENCER DAVIS GROUP\tKEEP ON RUNNING\t1",
     "1966\tOVERLANDERS\tMICHELLE\t3",
     "1966\tNANCY SINATRA\tTHESE BOOTS ARE MADE FOR WALKIN'\t4",
@@ -318,7 +318,7 @@ public class TestDiversifiedTopDocsCollector extends LuceneTestCase {
     "1969\tARCHIES\tSUGAR, SUGAR\t4"
   };
 
-  private static final Map<String, Record> parsedRecords = new HashMap<String, Record>();
+  private static final Map<String, Record> parsedRecords = new HashMap<>();
   private Directory dir;
   private IndexReader reader;
   private IndexSearcher searcher;
@@ -420,7 +420,7 @@ public class TestDiversifiedTopDocsCollector extends LuceneTestCase {
 
     parsedRecords.clear();
     for (int i = 0; i < hitsOfThe60s.length; i++) {
-      String cols[] = hitsOfThe60s[i].split("\t");
+      String[] cols = hitsOfThe60s[i].split("\t");
       Record record =
           new Record(String.valueOf(i), cols[0], cols[1], cols[2], Float.parseFloat(cols[3]));
       parsedRecords.put(record.id, record);
@@ -453,9 +453,9 @@ public class TestDiversifiedTopDocsCollector extends LuceneTestCase {
 
   private int getMaxNumRecordsPerArtist(ScoreDoc[] sd) throws IOException {
     int result = 0;
-    HashMap<String, Integer> artistCounts = new HashMap<String, Integer>();
+    HashMap<String, Integer> artistCounts = new HashMap<>();
     for (int i = 0; i < sd.length; i++) {
-      Document doc = reader.document(sd[i].doc);
+      Document doc = reader.storedFields().document(sd[i].doc);
       Record record = parsedRecords.get(doc.get("id"));
       Integer count = artistCounts.get(record.artist);
       int newCount = 1;
@@ -500,12 +500,12 @@ public class TestDiversifiedTopDocsCollector extends LuceneTestCase {
     }
 
     @Override
-    public Query rewrite(IndexReader reader) throws IOException {
-      Query rewritten = query.rewrite(reader);
+    public Query rewrite(IndexSearcher indexSearcher) throws IOException {
+      Query rewritten = query.rewrite(indexSearcher);
       if (rewritten != query) {
         return new DocValueScoreQuery(rewritten, scoreField);
       }
-      return super.rewrite(reader);
+      return super.rewrite(indexSearcher);
     }
 
     @Override
@@ -528,34 +528,38 @@ public class TestDiversifiedTopDocsCollector extends LuceneTestCase {
         }
 
         @Override
-        public Scorer scorer(LeafReaderContext context) throws IOException {
-          Scorer innerScorer = inner.scorer(context);
+        public ScorerSupplier scorerSupplier(LeafReaderContext context) throws IOException {
+          final var scorerSupplier = inner.scorerSupplier(context);
+          if (scorerSupplier == null) return null;
+          final var innerScorer = scorerSupplier.get(Long.MAX_VALUE);
           NumericDocValues scoreFactors = DocValues.getNumeric(context.reader(), scoreField);
-          return new Scorer(this) {
+          final var scorer =
+              new Scorer() {
 
-            @Override
-            public float score() throws IOException {
-              if (scoreFactors.advanceExact(docID())) {
-                return Float.intBitsToFloat((int) scoreFactors.longValue());
-              }
-              return 0;
-            }
+                @Override
+                public float score() throws IOException {
+                  if (scoreFactors.advanceExact(docID())) {
+                    return Float.intBitsToFloat((int) scoreFactors.longValue());
+                  }
+                  return 0;
+                }
 
-            @Override
-            public float getMaxScore(int upTo) throws IOException {
-              return Float.POSITIVE_INFINITY;
-            }
+                @Override
+                public float getMaxScore(int upTo) throws IOException {
+                  return Float.POSITIVE_INFINITY;
+                }
 
-            @Override
-            public DocIdSetIterator iterator() {
-              return innerScorer.iterator();
-            }
+                @Override
+                public DocIdSetIterator iterator() {
+                  return innerScorer.iterator();
+                }
 
-            @Override
-            public int docID() {
-              return innerScorer.docID();
-            }
-          };
+                @Override
+                public int docID() {
+                  return innerScorer.docID();
+                }
+              };
+          return new DefaultScorerSupplier(scorer);
         }
 
         @Override

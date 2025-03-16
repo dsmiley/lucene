@@ -17,11 +17,8 @@
 package org.apache.lucene.codecs.blockterms;
 
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Collections;
 import java.util.Iterator;
-import java.util.List;
 import java.util.TreeMap;
 import org.apache.lucene.codecs.BlockTermState;
 import org.apache.lucene.codecs.CodecUtil;
@@ -41,10 +38,10 @@ import org.apache.lucene.index.TermsEnum;
 import org.apache.lucene.store.ByteArrayDataInput;
 import org.apache.lucene.store.IndexInput;
 import org.apache.lucene.util.Accountable;
-import org.apache.lucene.util.Accountables;
 import org.apache.lucene.util.ArrayUtil;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.BytesRefBuilder;
+import org.apache.lucene.util.IOUtils;
 import org.apache.lucene.util.RamUsageEstimator;
 
 /**
@@ -58,8 +55,6 @@ import org.apache.lucene.util.RamUsageEstimator;
  * @lucene.experimental
  */
 public class BlockTermsReader extends FieldsProducer {
-  private static final long BASE_RAM_BYTES_USED =
-      RamUsageEstimator.shallowSizeOfInstance(BlockTermsReader.class);
   // Open input to the main terms dict file (_X.tis)
   private final IndexInput in;
 
@@ -196,22 +191,16 @@ public class BlockTermsReader extends FieldsProducer {
   public void close() throws IOException {
     try {
       try {
-        if (indexReader != null) {
-          indexReader.close();
-        }
+        IOUtils.close(indexReader);
       } finally {
         // null so if an app hangs on to us (ie, we are not
         // GCable, despite being closed) we still free most
         // ram
         indexReader = null;
-        if (in != null) {
-          in.close();
-        }
+        IOUtils.close(in);
       }
     } finally {
-      if (postingsReader != null) {
-        postingsReader.close();
-      }
+      IOUtils.close(postingsReader);
     }
   }
 
@@ -386,13 +375,13 @@ public class BlockTermsReader extends FieldsProducer {
         // target.utf8ToString() + " " + target + " current=" + term().utf8ToString() + " " + term()
         // + " indexIsCurrent=" + indexIsCurrent + " didIndexNext=" + didIndexNext + " seekPending="
         // + seekPending + " divisor=" + indexReader.getDivisor() + " this="  + this);
-        if (didIndexNext) {
-          if (nextIndexTerm == null) {
-            // System.out.println("  nextIndexTerm=null");
-          } else {
-            // System.out.println("  nextIndexTerm=" + nextIndexTerm.utf8ToString());
-          }
-        }
+        // if (didIndexNext) {
+        //  if (nextIndexTerm == null) {
+        //    // System.out.println("  nextIndexTerm=null");
+        //  } else {
+        //    // System.out.println("  nextIndexTerm=" + nextIndexTerm.utf8ToString());
+        //  }
+        // }
 
         boolean doSeek = true;
 
@@ -869,30 +858,6 @@ public class BlockTermsReader extends FieldsProducer {
         }
       }
     }
-  }
-
-  @Override
-  public long ramBytesUsed() {
-    long ramBytesUsed = BASE_RAM_BYTES_USED;
-    ramBytesUsed += (postingsReader != null) ? postingsReader.ramBytesUsed() : 0;
-    ramBytesUsed += (indexReader != null) ? indexReader.ramBytesUsed() : 0;
-    ramBytesUsed += fields.size() * 2L * RamUsageEstimator.NUM_BYTES_OBJECT_REF;
-    for (FieldReader reader : fields.values()) {
-      ramBytesUsed += reader.ramBytesUsed();
-    }
-    return ramBytesUsed;
-  }
-
-  @Override
-  public Collection<Accountable> getChildResources() {
-    List<Accountable> resources = new ArrayList<>();
-    if (indexReader != null) {
-      resources.add(Accountables.namedAccountable("term index", indexReader));
-    }
-    if (postingsReader != null) {
-      resources.add(Accountables.namedAccountable("delegate", postingsReader));
-    }
-    return Collections.unmodifiableList(resources);
   }
 
   @Override

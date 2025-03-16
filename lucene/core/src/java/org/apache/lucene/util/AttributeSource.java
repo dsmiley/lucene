@@ -181,6 +181,9 @@ public class AttributeSource {
    * retrieve the wanted attributes using {@link #getAttribute} after adding with this method and
    * cast to your class. The recommended way to use custom implementations is using an {@link
    * AttributeFactory}.
+   *
+   * <p>This method will only add the Attribute interfaces directly implemented by the class and its
+   * super classes.
    */
   public final void addAttributeImpl(final AttributeImpl att) {
     final Class<? extends AttributeImpl> clazz = att.getClass();
@@ -343,9 +346,7 @@ public class AttributeSource {
       return true;
     }
 
-    if (obj instanceof AttributeSource) {
-      AttributeSource other = (AttributeSource) obj;
-
+    if (obj instanceof AttributeSource other) {
       if (hasAttributes()) {
         if (!other.hasAttributes()) {
           return false;

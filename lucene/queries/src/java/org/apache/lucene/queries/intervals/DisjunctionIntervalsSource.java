@@ -75,7 +75,7 @@ class DisjunctionIntervalsSource extends IntervalsSource {
         subIterators.add(it);
       }
     }
-    if (subIterators.size() == 0) {
+    if (subIterators.isEmpty()) {
       return null;
     }
     return new DisjunctionIntervalIterator(subIterators);
@@ -91,14 +91,12 @@ class DisjunctionIntervalsSource extends IntervalsSource {
         subMatches.add(mi);
       }
     }
-    if (subMatches.size() == 0) {
+    if (subMatches.isEmpty()) {
       return null;
     }
     DisjunctionIntervalIterator it =
         new DisjunctionIntervalIterator(
-            subMatches.stream()
-                .map(m -> IntervalMatches.wrapMatches(m, doc))
-                .collect(Collectors.toList()));
+            subMatches.stream().map(m -> IntervalMatches.wrapMatches(m, doc)).toList());
     if (it.advance(doc) != doc) {
       return null;
     }
@@ -120,7 +118,10 @@ class DisjunctionIntervalsSource extends IntervalsSource {
 
   @Override
   public String toString() {
-    return subSources.stream().map(Object::toString).collect(Collectors.joining(",", "or(", ")"));
+    return subSources.stream()
+        .map(Object::toString)
+        .sorted()
+        .collect(Collectors.joining(",", "or(", ")"));
   }
 
   @Override
@@ -167,7 +168,7 @@ class DisjunctionIntervalsSource extends IntervalsSource {
       this.approximation = new DisjunctionDISIApproximation(disiQueue);
       this.iterators = iterators;
       this.intervalQueue =
-          new PriorityQueue<IntervalIterator>(iterators.size()) {
+          new PriorityQueue<>(iterators.size()) {
             @Override
             protected boolean lessThan(IntervalIterator a, IntervalIterator b) {
               return a.end() < b.end() || (a.end() == b.end() && a.start() >= b.start());
@@ -369,16 +370,9 @@ class DisjunctionIntervalsSource extends IntervalsSource {
         }
       };
 
-  private static class DisjunctionMatchesIterator implements IntervalMatchesIterator {
-
-    final DisjunctionIntervalIterator it;
-    final List<IntervalMatchesIterator> subs;
-
-    private DisjunctionMatchesIterator(
-        DisjunctionIntervalIterator it, List<IntervalMatchesIterator> subs) {
-      this.it = it;
-      this.subs = subs;
-    }
+  private record DisjunctionMatchesIterator(
+      DisjunctionIntervalIterator it, List<IntervalMatchesIterator> subs)
+      implements IntervalMatchesIterator {
 
     @Override
     public boolean next() throws IOException {

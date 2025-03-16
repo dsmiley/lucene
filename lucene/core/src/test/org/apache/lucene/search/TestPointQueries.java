@@ -30,14 +30,13 @@ import java.util.NoSuchElementException;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicBoolean;
-import org.apache.lucene.analysis.MockAnalyzer;
 import org.apache.lucene.codecs.Codec;
 import org.apache.lucene.codecs.FilterCodec;
 import org.apache.lucene.codecs.PointsFormat;
 import org.apache.lucene.codecs.PointsReader;
 import org.apache.lucene.codecs.PointsWriter;
-import org.apache.lucene.codecs.lucene86.Lucene86PointsReader;
-import org.apache.lucene.codecs.lucene86.Lucene86PointsWriter;
+import org.apache.lucene.codecs.lucene90.Lucene90PointsReader;
+import org.apache.lucene.codecs.lucene90.Lucene90PointsWriter;
 import org.apache.lucene.document.BinaryPoint;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.DoublePoint;
@@ -52,20 +51,22 @@ import org.apache.lucene.index.DirectoryReader;
 import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.IndexWriterConfig;
-import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.index.MultiDocValues;
 import org.apache.lucene.index.NumericDocValues;
 import org.apache.lucene.index.PointValues;
-import org.apache.lucene.index.RandomIndexWriter;
 import org.apache.lucene.index.SegmentReadState;
 import org.apache.lucene.index.SegmentWriteState;
 import org.apache.lucene.index.Term;
 import org.apache.lucene.store.Directory;
+import org.apache.lucene.tests.analysis.MockAnalyzer;
+import org.apache.lucene.tests.index.RandomIndexWriter;
+import org.apache.lucene.tests.search.FixedBitSetCollector;
+import org.apache.lucene.tests.util.LuceneTestCase;
+import org.apache.lucene.tests.util.TestUtil;
 import org.apache.lucene.util.BytesRef;
+import org.apache.lucene.util.FixedBitSet;
 import org.apache.lucene.util.IOUtils;
-import org.apache.lucene.util.LuceneTestCase;
 import org.apache.lucene.util.NumericUtils;
-import org.apache.lucene.util.TestUtil;
 import org.apache.lucene.util.bkd.BKDConfig;
 import org.junit.BeforeClass;
 
@@ -252,7 +253,7 @@ public class TestPointQueries extends LuceneTestCase {
     assertEquals(1, s.count(DoublePoint.newExactQuery("point", Double.NaN)));
 
     // set query
-    double set[] =
+    double[] set =
         new double[] {
           Double.MAX_VALUE,
           Double.NaN,
@@ -325,7 +326,7 @@ public class TestPointQueries extends LuceneTestCase {
     assertEquals(1, s.count(FloatPoint.newExactQuery("point", Float.NaN)));
 
     // set query
-    float set[] =
+    float[] set =
         new float[] {
           Float.MAX_VALUE,
           Float.NaN,
@@ -371,6 +372,10 @@ public class TestPointQueries extends LuceneTestCase {
 
   public void testRandomLongsMedium() throws Exception {
     doTestRandomLongs(1000);
+  }
+
+  public void testRandomLongsBig() throws Exception {
+    doTestRandomLongs(20_000);
   }
 
   private void doTestRandomLongs(int count) throws Exception {
@@ -433,7 +438,13 @@ public class TestPointQueries extends LuceneTestCase {
       dir = newMaybeVirusCheckingDirectory();
     }
 
-    int missingPct = random().nextInt(100);
+    /*
+    The point range query chooses only considers using an inverse BKD visitor if
+    there is exactly one value per document. If any document misses a value that
+    code is not exercised. Using a nextBoolean() here increases the likelihood
+    that there is no missing values, making the test more likely to test that code.
+    */
+    int missingPct = random().nextBoolean() ? 0 : random().nextInt(100);
     int deletedPct = random().nextInt(100);
     if (VERBOSE) {
       System.out.println("  missingPct=" + missingPct);
@@ -552,14 +563,10 @@ public class TestPointQueries extends LuceneTestCase {
                           + " TO "
                           + upper);
                   byte[] tmp = new byte[8];
-                  if (lower != null) {
-                    NumericUtils.longToSortableBytes(lower, tmp, 0);
-                    System.out.println("  lower bytes=" + Arrays.toString(tmp));
-                  }
-                  if (upper != null) {
-                    NumericUtils.longToSortableBytes(upper, tmp, 0);
-                    System.out.println("  upper bytes=" + Arrays.toString(tmp));
-                  }
+                  NumericUtils.longToSortableBytes(lower, tmp, 0);
+                  System.out.println("  lower bytes=" + Arrays.toString(tmp));
+                  NumericUtils.longToSortableBytes(upper, tmp, 0);
+                  System.out.println("  upper bytes=" + Arrays.toString(tmp));
                 }
 
                 if (random().nextBoolean()) {
@@ -576,28 +583,8 @@ public class TestPointQueries extends LuceneTestCase {
                   System.out.println(Thread.currentThread().getName() + ":  using query: " + query);
                 }
 
-                final BitSet hits = new BitSet();
-                s.search(
-                    query,
-                    new SimpleCollector() {
-
-                      private int docBase;
-
-                      @Override
-                      public ScoreMode scoreMode() {
-                        return ScoreMode.COMPLETE_NO_SCORES;
-                      }
-
-                      @Override
-                      protected void doSetNextReader(LeafReaderContext context) throws IOException {
-                        docBase = context.docBase;
-                      }
-
-                      @Override
-                      public void collect(int doc) {
-                        hits.set(docBase + doc);
-                      }
-                    });
+                final FixedBitSet hits =
+                    s.search(query, FixedBitSetCollector.createManager(r.maxDoc()));
 
                 if (VERBOSE) {
                   System.out.println(
@@ -874,28 +861,8 @@ public class TestPointQueries extends LuceneTestCase {
                   System.out.println(Thread.currentThread().getName() + ":  using query: " + query);
                 }
 
-                final BitSet hits = new BitSet();
-                s.search(
-                    query,
-                    new SimpleCollector() {
-
-                      private int docBase;
-
-                      @Override
-                      public ScoreMode scoreMode() {
-                        return ScoreMode.COMPLETE_NO_SCORES;
-                      }
-
-                      @Override
-                      protected void doSetNextReader(LeafReaderContext context) throws IOException {
-                        docBase = context.docBase;
-                      }
-
-                      @Override
-                      public void collect(int doc) {
-                        hits.set(docBase + doc);
-                      }
-                    });
+                final FixedBitSet hits =
+                    s.search(query, FixedBitSetCollector.createManager(r.maxDoc()));
 
                 if (VERBOSE) {
                   System.out.println(
@@ -969,7 +936,7 @@ public class TestPointQueries extends LuceneTestCase {
     if (bytes == null) {
       return "null";
     }
-    return new BytesRef(bytes).toString();
+    return newBytesRef(bytes).toString();
   }
 
   private static boolean matches(int bytesPerDim, byte[][] lower, byte[][] upper, byte[][] value) {
@@ -1284,12 +1251,12 @@ public class TestPointQueries extends LuceneTestCase {
           return new PointsFormat() {
             @Override
             public PointsWriter fieldsWriter(SegmentWriteState writeState) throws IOException {
-              return new Lucene86PointsWriter(writeState, maxPointsInLeafNode, maxMBSortInHeap);
+              return new Lucene90PointsWriter(writeState, maxPointsInLeafNode, maxMBSortInHeap);
             }
 
             @Override
             public PointsReader fieldsReader(SegmentReadState readState) throws IOException {
-              return new Lucene86PointsReader(readState);
+              return new Lucene90PointsReader(readState);
             }
           };
         }
@@ -2095,7 +2062,7 @@ public class TestPointQueries extends LuceneTestCase {
                   new PointInSetQuery.Stream() {
                     @Override
                     public BytesRef next() {
-                      return new BytesRef(new byte[3]);
+                      return newBytesRef(new byte[3]);
                     }
                   }) {
                 @Override
@@ -2192,6 +2159,60 @@ public class TestPointQueries extends LuceneTestCase {
     weight = searcher.createWeight(query, ScoreMode.COMPLETE_NO_SCORES, 1);
     scorer = weight.scorer(searcher.getIndexReader().leaves().get(0));
     assertFalse(DocIdSetIterator.all(1).getClass().equals(scorer.iterator().getClass()));
+
+    reader.close();
+    w.close();
+    dir.close();
+  }
+
+  public void testPointRangeWeightCount() throws IOException {
+    // the optimization for Weight#count kicks in only when the number of dimensions is 1
+    Directory dir = newDirectory();
+    RandomIndexWriter w = new RandomIndexWriter(random(), dir);
+
+    int numPoints = random().nextInt(1, 10);
+    int[] points = new int[numPoints];
+
+    int numQueries = random().nextInt(1, 10);
+    int[] lowerBound = new int[numQueries];
+    int[] upperBound = new int[numQueries];
+    int[] expectedCount = new int[numQueries];
+
+    for (int i = 0; i < numQueries; i++) {
+      // generate random queries
+      lowerBound[i] = random().nextInt(1, 10);
+      // allow malformed ranges where upperBound could be less than lowerBound
+      upperBound[i] = random().nextInt(1, 10);
+    }
+
+    for (int i = 0; i < numPoints; i++) {
+      // generate random 1D points
+      points[i] = random().nextInt(1, 10);
+      if (random().nextBoolean()) {
+        // the doc may have at-most 1 point
+        Document doc = new Document();
+        doc.add(new IntPoint("point", points[i]));
+        w.addDocument(doc);
+        for (int j = 0; j < numQueries; j++) {
+          // calculate the number of points that lie within the query range
+          if (lowerBound[j] <= points[i] && points[i] <= upperBound[j]) {
+            expectedCount[j]++;
+          }
+        }
+      }
+    }
+    w.commit();
+    w.forceMerge(1);
+
+    IndexReader reader = w.getReader();
+    IndexSearcher searcher = new IndexSearcher(reader);
+    if (searcher.leafContexts.isEmpty() == false) { // we need at least 1 leaf in the segment
+      for (int i = 0; i < numQueries; i++) {
+        Query query = IntPoint.newRangeQuery("point", lowerBound[i], upperBound[i]);
+        Weight weight = searcher.createWeight(query, ScoreMode.COMPLETE_NO_SCORES, 1);
+        assertEquals(expectedCount[i], weight.count(searcher.leafContexts.get(0)));
+      }
+    }
 
     reader.close();
     w.close();
@@ -2441,6 +2462,39 @@ public class TestPointQueries extends LuceneTestCase {
     assertEquals(high[0] - low[0] + 1, searcher.count(IntPoint.newRangeQuery("f", low, high)));
 
     r.close();
+    dir.close();
+  }
+
+  public void testRangeQuerySkipsNonMatchingSegments() throws IOException {
+    Directory dir = newDirectory();
+    IndexWriter w = new IndexWriter(dir, newIndexWriterConfig());
+    Document doc = new Document();
+    doc.add(new IntPoint("field", 2));
+    doc.add(new IntPoint("field2d", 1, 3));
+    w.addDocument(doc);
+
+    DirectoryReader reader = DirectoryReader.open(w);
+    IndexSearcher searcher = newSearcher(reader);
+
+    Query query = IntPoint.newRangeQuery("field", 0, 1);
+    Weight weight =
+        searcher.createWeight(searcher.rewrite(query), ScoreMode.COMPLETE_NO_SCORES, 1f);
+    assertNull(weight.scorerSupplier(reader.leaves().get(0)));
+
+    query = IntPoint.newRangeQuery("field", 3, 4);
+    weight = searcher.createWeight(searcher.rewrite(query), ScoreMode.COMPLETE_NO_SCORES, 1f);
+    assertNull(weight.scorerSupplier(reader.leaves().get(0)));
+
+    query = IntPoint.newRangeQuery("field2d", new int[] {0, 0}, new int[] {2, 2});
+    weight = searcher.createWeight(searcher.rewrite(query), ScoreMode.COMPLETE_NO_SCORES, 1f);
+    assertNull(weight.scorerSupplier(reader.leaves().get(0)));
+
+    query = IntPoint.newRangeQuery("field2d", new int[] {2, 2}, new int[] {4, 4});
+    weight = searcher.createWeight(searcher.rewrite(query), ScoreMode.COMPLETE_NO_SCORES, 1f);
+    assertNull(weight.scorerSupplier(reader.leaves().get(0)));
+
+    reader.close();
+    w.close();
     dir.close();
   }
 }

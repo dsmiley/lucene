@@ -24,13 +24,14 @@ import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field;
 import org.apache.lucene.document.NumericDocValuesField;
 import org.apache.lucene.index.IndexReader;
-import org.apache.lucene.index.RandomIndexWriter;
 import org.apache.lucene.index.Term;
 import org.apache.lucene.store.Directory;
+import org.apache.lucene.tests.index.RandomIndexWriter;
+import org.apache.lucene.tests.search.CheckHits;
+import org.apache.lucene.tests.util.English;
+import org.apache.lucene.tests.util.LuceneTestCase;
+import org.apache.lucene.tests.util.TestUtil;
 import org.apache.lucene.util.ArrayUtil;
-import org.apache.lucene.util.English;
-import org.apache.lucene.util.LuceneTestCase;
-import org.apache.lucene.util.TestUtil;
 
 public class TestLongValuesSource extends LuceneTestCase {
 
@@ -46,7 +47,6 @@ public class TestLongValuesSource extends LuceneTestCase {
     dir = newDirectory();
     RandomIndexWriter iw = new RandomIndexWriter(random(), dir);
     int numDocs = TestUtil.nextInt(random(), 2049, 4000);
-    int leastValue = 45;
     for (int i = 0; i < numDocs; i++) {
       Document document = new Document();
       document.add(newTextField("english", English.intToEnglish(i), Field.Store.NO));
@@ -140,7 +140,7 @@ public class TestLongValuesSource extends LuceneTestCase {
 
   Sort randomSort() throws Exception {
     boolean reversed = random().nextBoolean();
-    SortField fields[] =
+    SortField[] fields =
         new SortField[] {
           new SortField("int", SortField.Type.INT, reversed),
           new SortField("long", SortField.Type.LONG, reversed)
@@ -152,8 +152,8 @@ public class TestLongValuesSource extends LuceneTestCase {
 
   // Take a Sort, and replace any field sorts with Sortables
   Sort convertSortToSortable(Sort sort) {
-    SortField original[] = sort.getSort();
-    SortField mutated[] = new SortField[original.length];
+    SortField[] original = sort.getSort();
+    SortField[] mutated = new SortField[original.length];
     for (int i = 0; i < mutated.length; i++) {
       if (random().nextInt(3) > 0) {
         SortField s = original[i];
@@ -165,6 +165,14 @@ public class TestLongValuesSource extends LuceneTestCase {
           case LONG:
             mutated[i] = LongValuesSource.fromLongField(s.getField()).getSortField(reverse);
             break;
+          case CUSTOM:
+          case DOUBLE:
+          case FLOAT:
+          case DOC:
+          case REWRITEABLE:
+          case STRING:
+          case STRING_VAL:
+          case SCORE:
           default:
             mutated[i] = original[i];
         }
@@ -184,7 +192,7 @@ public class TestLongValuesSource extends LuceneTestCase {
 
     CheckHits.checkEqual(query, expected.scoreDocs, actual.scoreDocs);
 
-    if (size < actual.totalHits.value) {
+    if (size < actual.totalHits.value()) {
       expected = searcher.searchAfter(expected.scoreDocs[size - 1], query, size, sort);
       actual = searcher.searchAfter(actual.scoreDocs[size - 1], query, size, mutatedSort);
       CheckHits.checkEqual(query, expected.scoreDocs, actual.scoreDocs);

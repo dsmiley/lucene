@@ -144,7 +144,7 @@ final class FreqProxTermsWriterPerField extends TermsHashPerField {
 
     if (!hasFreq) {
       assert postings.termFreqs == null;
-      if (termFreqAtt.getTermFrequency() != 1) {
+      if (termFreqAtt != null && termFreqAtt.getTermFrequency() != 1) {
         throw new IllegalStateException(
             "field \""
                 + getFieldName()
@@ -203,7 +203,7 @@ final class FreqProxTermsWriterPerField extends TermsHashPerField {
   }
 
   private int getTermFreq() {
-    int freq = termFreqAtt.getTermFrequency();
+    int freq = termFreqAtt == null ? 1 : termFreqAtt.getTermFrequency();
     if (freq != 1) {
       if (hasProx) {
         throw new IllegalStateException(
@@ -251,11 +251,11 @@ final class FreqProxTermsWriterPerField extends TermsHashPerField {
       // writeOffsets);
     }
 
-    int termFreqs[]; // # times this term occurs in the current doc
-    int lastDocIDs[]; // Last docID where this term occurred
-    int lastDocCodes[]; // Code for prior doc
-    int lastPositions[]; // Last position where this term occurred
-    int lastOffsets[]; // Last endOffset where this term occurred
+    int[] termFreqs; // # times this term occurs in the current doc
+    int[] lastDocIDs; // Last docID where this term occurred
+    int[] lastDocCodes; // Code for prior doc
+    int[] lastPositions; // Last position where this term occurred
+    int[] lastOffsets; // Last endOffset where this term occurred
 
     @Override
     ParallelPostingsArray newInstance(int size) {

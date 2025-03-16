@@ -17,17 +17,22 @@
 package org.apache.lucene.analysis.ja;
 
 import java.io.IOException;
-import java.util.HashSet;
+import java.io.Reader;
+import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
 import java.util.Set;
+import java.util.stream.Collectors;
 import org.apache.lucene.analysis.CharArraySet;
 import org.apache.lucene.analysis.LowerCaseFilter;
 import org.apache.lucene.analysis.StopFilter;
 import org.apache.lucene.analysis.StopwordAnalyzerBase;
 import org.apache.lucene.analysis.TokenStream;
 import org.apache.lucene.analysis.Tokenizer;
-import org.apache.lucene.analysis.cjk.CJKWidthFilter;
+import org.apache.lucene.analysis.WordlistLoader;
+import org.apache.lucene.analysis.cjk.CJKWidthCharFilter;
 import org.apache.lucene.analysis.ja.JapaneseTokenizer.Mode;
 import org.apache.lucene.analysis.ja.dict.UserDictionary;
+import org.apache.lucene.util.IOUtils;
 
 /**
  * Analyzer for Japanese that uses morphological analysis.
@@ -75,17 +80,27 @@ public class JapaneseAnalyzer extends StopwordAnalyzerBase {
     static {
       try {
         DEFAULT_STOP_SET =
-            loadStopwordSet(true, JapaneseAnalyzer.class, "stopwords.txt", "#"); // ignore case
+            CharArraySet.unmodifiableSet(
+                WordlistLoader.getWordSet(
+                    IOUtils.getDecodingReader(
+                        IOUtils.requireResourceNonNull(
+                            JapaneseAnalyzer.class.getResourceAsStream("stopwords.txt"),
+                            "stopwords.txt"),
+                        StandardCharsets.UTF_8),
+                    "#",
+                    new CharArraySet(16, true))); // ignore case
         final CharArraySet tagset =
-            loadStopwordSet(false, JapaneseAnalyzer.class, "stoptags.txt", "#");
-        DEFAULT_STOP_TAGS = new HashSet<>();
-        for (Object element : tagset) {
-          char chars[] = (char[]) element;
-          DEFAULT_STOP_TAGS.add(new String(chars));
-        }
+            WordlistLoader.getWordSet(
+                IOUtils.requireResourceNonNull(
+                    JapaneseAnalyzer.class.getResourceAsStream("stoptags.txt"), "stoptags.txt"),
+                "#");
+        DEFAULT_STOP_TAGS =
+            tagset.stream()
+                .map(ca -> new String((char[]) ca))
+                .collect(Collectors.toUnmodifiableSet());
       } catch (IOException ex) {
         // default set should always be present as it is part of the distribution (JAR)
-        throw new RuntimeException("Unable to load default stopword or stoptag set");
+        throw new UncheckedIOException("Unable to load default stopword or stoptag set", ex);
       }
     }
   }
@@ -95,7 +110,6 @@ public class JapaneseAnalyzer extends StopwordAnalyzerBase {
     Tokenizer tokenizer = new JapaneseTokenizer(userDict, true, true, mode);
     TokenStream stream = new JapaneseBaseFormFilter(tokenizer);
     stream = new JapanesePartOfSpeechStopFilter(stream, stoptags);
-    stream = new CJKWidthFilter(stream);
     stream = new StopFilter(stream, stopwords);
     stream = new JapaneseKatakanaStemFilter(stream);
     stream = new LowerCaseFilter(stream);
@@ -104,8 +118,17 @@ public class JapaneseAnalyzer extends StopwordAnalyzerBase {
 
   @Override
   protected TokenStream normalize(String fieldName, TokenStream in) {
-    TokenStream result = new CJKWidthFilter(in);
-    result = new LowerCaseFilter(result);
+    TokenStream result = new LowerCaseFilter(in);
     return result;
+  }
+
+  @Override
+  protected Reader initReader(String fieldName, Reader reader) {
+    return new CJKWidthCharFilter(reader);
+  }
+
+  @Override
+  protected Reader initReaderForNormalization(String fieldName, Reader reader) {
+    return new CJKWidthCharFilter(reader);
   }
 }

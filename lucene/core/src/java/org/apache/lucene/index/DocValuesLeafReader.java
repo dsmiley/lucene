@@ -18,6 +18,7 @@
 package org.apache.lucene.index;
 
 import java.io.IOException;
+import org.apache.lucene.search.KnnCollector;
 import org.apache.lucene.util.Bits;
 
 abstract class DocValuesLeafReader extends LeafReader {
@@ -47,7 +48,24 @@ abstract class DocValuesLeafReader extends LeafReader {
   }
 
   @Override
-  public final VectorValues getVectorValues(String field) throws IOException {
+  public final FloatVectorValues getFloatVectorValues(String field) throws IOException {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public final ByteVectorValues getByteVectorValues(String field) throws IOException {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public void searchNearestVectors(
+      String field, float[] target, KnnCollector knnCollector, Bits acceptDocs) throws IOException {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public void searchNearestVectors(
+      String field, byte[] target, KnnCollector knnCollector, Bits acceptDocs) throws IOException {
     throw new UnsupportedOperationException();
   }
 
@@ -62,7 +80,7 @@ abstract class DocValuesLeafReader extends LeafReader {
   }
 
   @Override
-  public final Fields getTermVectors(int docID) throws IOException {
+  public final TermVectors termVectors() throws IOException {
     throw new UnsupportedOperationException();
   }
 
@@ -77,7 +95,7 @@ abstract class DocValuesLeafReader extends LeafReader {
   }
 
   @Override
-  public final void document(int docID, StoredFieldVisitor visitor) throws IOException {
+  public final StoredFields storedFields() throws IOException {
     throw new UnsupportedOperationException();
   }
 
@@ -88,6 +106,11 @@ abstract class DocValuesLeafReader extends LeafReader {
 
   @Override
   public final CacheHelper getReaderCacheHelper() {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public DocValuesSkipper getDocValuesSkipper(String field) throws IOException {
     throw new UnsupportedOperationException();
   }
 }

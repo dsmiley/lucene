@@ -19,7 +19,7 @@ package org.apache.lucene.search;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.util.Arrays;
-import org.apache.lucene.util.LuceneTestCase;
+import org.apache.lucene.tests.util.LuceneTestCase;
 import org.junit.Test;
 
 public class TestFilterWeight extends LuceneTestCase {
@@ -36,7 +36,7 @@ public class TestFilterWeight extends LuceneTestCase {
       final int modifiers = superClassMethod.getModifiers();
       if (Modifier.isFinal(modifiers)) continue;
       if (Modifier.isStatic(modifiers)) continue;
-      if (Arrays.asList("bulkScorer", "scorerSupplier").contains(superClassMethod.getName())) {
+      if (Arrays.asList("bulkScorer", "count").contains(superClassMethod.getName())) {
         try {
           final Method subClassMethod =
               subClass.getDeclaredMethod(
@@ -49,7 +49,9 @@ public class TestFilterWeight extends LuceneTestCase {
                   + " but it does override\n'"
                   + subClassMethod
                   + "'");
-        } catch (NoSuchMethodException e) {
+        } catch (
+            @SuppressWarnings("unused")
+            NoSuchMethodException e) {
           /* FilterWeight must not override the bulkScorer method
            * since as of July 2016 not all deriving classes use the
            * {code}return in.bulkScorer(content);{code}
@@ -66,7 +68,9 @@ public class TestFilterWeight extends LuceneTestCase {
             "getReturnType() difference",
             superClassMethod.getReturnType(),
             subClassMethod.getReturnType());
-      } catch (NoSuchMethodException e) {
+      } catch (
+          @SuppressWarnings("unused")
+          NoSuchMethodException e) {
         fail(subClass + " needs to override '" + superClassMethod + "'");
       }
     }

@@ -16,9 +16,10 @@
  */
 package org.apache.lucene.analysis.tokenattributes;
 
+import java.util.Arrays;
+import org.apache.lucene.tests.util.LuceneTestCase;
 import org.apache.lucene.util.AttributeImpl;
 import org.apache.lucene.util.BytesRef;
-import org.apache.lucene.util.LuceneTestCase;
 
 public class TestBytesRefAttImpl extends LuceneTestCase {
 
@@ -43,5 +44,12 @@ public class TestBytesRefAttImpl extends LuceneTestCase {
     assertEquals("Copied instance must be equal", att, copy);
     assertEquals("Copied instance's hashcode must be equal", att.hashCode(), copy.hashCode());
     return copy;
+  }
+
+  public void testLucene9856() {
+    assertTrue(
+        "BytesTermAttributeImpl must explicitly declare to implement TermToBytesRefAttribute",
+        Arrays.asList(BytesTermAttributeImpl.class.getInterfaces())
+            .contains(TermToBytesRefAttribute.class));
   }
 }

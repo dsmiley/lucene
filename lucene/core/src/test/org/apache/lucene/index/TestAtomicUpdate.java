@@ -20,17 +20,16 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
-import org.apache.lucene.analysis.MockAnalyzer;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field;
 import org.apache.lucene.document.IntPoint;
-import org.apache.lucene.document.StringField;
-import org.apache.lucene.document.TextField;
 import org.apache.lucene.store.ByteBuffersDirectory;
 import org.apache.lucene.store.Directory;
-import org.apache.lucene.store.MockDirectoryWrapper;
-import org.apache.lucene.util.English;
-import org.apache.lucene.util.LuceneTestCase;
+import org.apache.lucene.tests.analysis.MockAnalyzer;
+import org.apache.lucene.tests.index.RandomIndexWriter;
+import org.apache.lucene.tests.store.MockDirectoryWrapper;
+import org.apache.lucene.tests.util.English;
+import org.apache.lucene.tests.util.LuceneTestCase;
 
 public class TestAtomicUpdate extends LuceneTestCase {
 
@@ -71,9 +70,9 @@ public class TestAtomicUpdate extends LuceneTestCase {
       // Update all 100 docs...
       for (int i = 0; i < 100; i++) {
         Document d = new Document();
-        d.add(new StringField("id", Integer.toString(i), Field.Store.YES));
+        d.add(newStringField("id", Integer.toString(i), Field.Store.YES));
         d.add(
-            new TextField(
+            newTextField(
                 "contents", English.intToEnglish(i + 10 * currentIteration), Field.Store.NO));
         d.add(new IntPoint("doc", i));
         d.add(new IntPoint("doc2d", i, i));
@@ -110,7 +109,7 @@ public class TestAtomicUpdate extends LuceneTestCase {
 
     IndexWriterConfig conf =
         new IndexWriterConfig(new MockAnalyzer(random())).setMaxBufferedDocs(7);
-    ((TieredMergePolicy) conf.getMergePolicy()).setMaxMergeAtOnce(3);
+    ((TieredMergePolicy) conf.getMergePolicy()).setSegmentsPerTier(3);
     IndexWriter writer = RandomIndexWriter.mockIndexWriter(directory, conf, random());
 
     // Establish a base index of 100 docs:

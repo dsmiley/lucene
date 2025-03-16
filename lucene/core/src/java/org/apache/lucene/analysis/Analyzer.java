@@ -30,7 +30,6 @@ import org.apache.lucene.store.AlreadyClosedException;
 import org.apache.lucene.util.AttributeFactory;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.CloseableThreadLocal;
-import org.apache.lucene.util.Version;
 
 /**
  * An Analyzer builds TokenStreams, which analyze text. It thus represents a policy for extracting
@@ -52,7 +51,7 @@ import org.apache.lucene.util.Version;
  *     return new TokenStreamComponents(source, filter);
  *   }
  *   {@literal @Override}
- *   protected TokenStream normalize(TokenStream in) {
+ *   protected TokenStream normalize(String fieldName, TokenStream in) {
  *     // Assuming FooFilter is about normalization and BarFilter is about
  *     // stemming, only FooFilter should be applied
  *     return new FooFilter(in);
@@ -86,7 +85,6 @@ import org.apache.lucene.util.Version;
 public abstract class Analyzer implements Closeable {
 
   private final ReuseStrategy reuseStrategy;
-  private Version version = Version.LATEST;
 
   // non final as it gets nulled if closed; pkg private for access by ReuseStrategy's final helper
   // methods:
@@ -329,16 +327,6 @@ public abstract class Analyzer implements Closeable {
     return reuseStrategy;
   }
 
-  /** Set the version of Lucene this analyzer should mimic the behavior for for analysis. */
-  public void setVersion(Version v) {
-    version = v; // TODO: make write once?
-  }
-
-  /** Return the version of Lucene this analyzer will mimic the behavior of for analysis. */
-  public Version getVersion() {
-    return version;
-  }
-
   /** Frees persistent resources used by this Analyzer */
   @Override
   public void close() {
@@ -354,9 +342,10 @@ public abstract class Analyzer implements Closeable {
    * TokenFilter} which also serves as the {@link TokenStream} returned by {@link
    * Analyzer#tokenStream(String, Reader)}.
    */
-  public static final class TokenStreamComponents {
+  public static class TokenStreamComponents {
     /** Original source of the tokens. */
     protected final Consumer<Reader> source;
+
     /**
      * Sink tokenstream, such as the outer tokenfilter decorating the chain. This can be the source
      * if there are no filters.

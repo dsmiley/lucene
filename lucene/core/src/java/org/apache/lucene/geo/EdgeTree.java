@@ -34,14 +34,19 @@ final class EdgeTree {
   // X-Y pair (in original order) of the two vertices
   final double y1, y2;
   final double x1, x2;
+
   /** min Y of this edge */
   final double low;
+
   /** max Y of this edge or any children */
   double max;
+
   /** left child edge, or null */
   EdgeTree left;
+
   /** right child edge, or null */
   EdgeTree right;
+
   /** helper bytes to signal if a point is on an edge, it is within the edge tree or disjoint */
   private static final byte FALSE = 0x00;
 
@@ -334,7 +339,7 @@ final class EdgeTree {
    * @return root node of the tree.
    */
   static EdgeTree createTree(double[] x, double[] y) {
-    EdgeTree edges[] = new EdgeTree[x.length - 1];
+    EdgeTree[] edges = new EdgeTree[x.length - 1];
     for (int i = 1; i < x.length; i++) {
       double x1 = x[i - 1];
       double y1 = y[i - 1];
@@ -356,7 +361,7 @@ final class EdgeTree {
   }
 
   /** Creates tree from sorted edges (with range low and high inclusive) */
-  private static EdgeTree createTree(EdgeTree edges[], int low, int high) {
+  private static EdgeTree createTree(EdgeTree[] edges, int low, int high) {
     if (low > high) {
       return null;
     }

@@ -16,19 +16,17 @@
  */
 package org.apache.lucene.codecs.lucene90.blocktree;
 
+import static org.apache.lucene.codecs.lucene90.blocktree.Lucene90BlockTreeTermsReader.VERSION_MSB_VLONG_OUTPUT;
+
 import java.io.IOException;
-import java.util.Collection;
-import java.util.Collections;
 import org.apache.lucene.index.FieldInfo;
 import org.apache.lucene.index.IndexOptions;
 import org.apache.lucene.index.Terms;
 import org.apache.lucene.index.TermsEnum;
 import org.apache.lucene.store.ByteArrayDataInput;
+import org.apache.lucene.store.DataInput;
 import org.apache.lucene.store.IndexInput;
-import org.apache.lucene.util.Accountable;
-import org.apache.lucene.util.Accountables;
 import org.apache.lucene.util.BytesRef;
-import org.apache.lucene.util.RamUsageEstimator;
 import org.apache.lucene.util.automaton.CompiledAutomaton;
 import org.apache.lucene.util.fst.ByteSequenceOutputs;
 import org.apache.lucene.util.fst.FST;
@@ -39,13 +37,9 @@ import org.apache.lucene.util.fst.OffHeapFSTStore;
  *
  * @lucene.internal
  */
-public final class FieldReader extends Terms implements Accountable {
+public final class FieldReader extends Terms {
 
   // private final boolean DEBUG = BlockTreeTermsWriter.DEBUG;
-
-  private static final long BASE_RAM_BYTES_USED =
-      RamUsageEstimator.shallowSizeOfInstance(FieldReader.class)
-          + 3 * RamUsageEstimator.shallowSizeOfInstance(BytesRef.class);
 
   final long numTerms;
   final FieldInfo fieldInfo;
@@ -59,6 +53,7 @@ public final class FieldReader extends Terms implements Accountable {
   final Lucene90BlockTreeTermsReader parent;
 
   final FST<BytesRef> index;
+
   // private boolean DEBUG;
 
   FieldReader(
@@ -83,7 +78,6 @@ public final class FieldReader extends Terms implements Accountable {
     this.sumTotalTermFreq = sumTotalTermFreq;
     this.sumDocFreq = sumDocFreq;
     this.docCount = docCount;
-    this.rootCode = rootCode;
     this.minTerm = minTerm;
     this.maxTerm = maxTerm;
     // if (DEBUG) {
@@ -91,12 +85,11 @@ public final class FieldReader extends Terms implements Accountable {
     // + rootCode + " divisor=" + indexDivisor);
     // }
     rootBlockFP =
-        (new ByteArrayDataInput(rootCode.bytes, rootCode.offset, rootCode.length)).readVLong()
+        readVLongOutput(new ByteArrayDataInput(rootCode.bytes, rootCode.offset, rootCode.length))
             >>> Lucene90BlockTreeTermsReader.OUTPUT_FLAGS_NUM_BITS;
     // Initialize FST always off-heap.
-    final IndexInput clone = indexIn.clone();
-    clone.seek(indexStartFP);
-    index = new FST<>(metaIn, clone, ByteSequenceOutputs.getSingleton(), new OffHeapFSTStore());
+    var metadata = FST.readMetadata(metaIn, ByteSequenceOutputs.getSingleton());
+    index = FST.fromFSTReader(metadata, new OffHeapFSTStore(indexIn, indexStartFP, metadata));
     /*
      if (false) {
      final String dotFileName = segment + "_" + fieldInfo.name + ".dot";
@@ -106,6 +99,40 @@ public final class FieldReader extends Terms implements Accountable {
      w.close();
      }
     */
+    BytesRef emptyOutput = metadata.getEmptyOutput();
+    if (rootCode.equals(emptyOutput) == false) {
+      // TODO: this branch is never taken
+      assert false;
+      this.rootCode = rootCode;
+    } else {
+      this.rootCode = emptyOutput;
+    }
+  }
+
+  long readVLongOutput(DataInput in) throws IOException {
+    if (parent.version >= VERSION_MSB_VLONG_OUTPUT) {
+      return readMSBVLong(in);
+    } else {
+      return in.readVLong();
+    }
+  }
+
+  /**
+   * Decodes a variable length byte[] in MSB order back to long, as written by {@link
+   * Lucene90BlockTreeTermsWriter#writeMSBVLong}.
+   *
+   * <p>Package private for testing.
+   */
+  static long readMSBVLong(DataInput in) throws IOException {
+    long l = 0L;
+    while (true) {
+      byte b = in.readByte();
+      l = (l << 7) | (b & 0x7FL);
+      if ((b & 0x80) == 0) {
+        break;
+      }
+    }
+    return l;
   }
 
   @Override
@@ -185,7 +212,7 @@ public final class FieldReader extends Terms implements Accountable {
   @Override
   public TermsEnum intersect(CompiledAutomaton compiled, BytesRef startTerm) throws IOException {
     // if (DEBUG) System.out.println("  FieldReader.intersect startTerm=" +
-    // BlockTreeTermsWriter.brToString(startTerm));
+    // ToStringUtils.bytesRefToString(startTerm));
     // System.out.println("intersect: " + compiled.type + " a=" + compiled.automaton);
     // TODO: we could push "it's a range" or "it's a prefix" down into IntersectTermsEnum?
     // can we optimize knowing that...?
@@ -193,21 +220,11 @@ public final class FieldReader extends Terms implements Accountable {
       throw new IllegalArgumentException("please use CompiledAutomaton.getTermsEnum instead");
     }
     return new IntersectTermsEnum(
-        this, compiled.automaton, compiled.runAutomaton, compiled.commonSuffixRef, startTerm);
-  }
-
-  @Override
-  public long ramBytesUsed() {
-    return BASE_RAM_BYTES_USED + ((index != null) ? index.ramBytesUsed() : 0);
-  }
-
-  @Override
-  public Collection<Accountable> getChildResources() {
-    if (index == null) {
-      return Collections.emptyList();
-    } else {
-      return Collections.singleton(Accountables.namedAccountable("term index", index));
-    }
+        this,
+        compiled.getTransitionAccessor(),
+        compiled.getByteRunnable(),
+        compiled.commonSuffixRef,
+        startTerm);
   }
 
   @Override

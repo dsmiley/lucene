@@ -17,13 +17,12 @@
 package org.apache.lucene.analysis.ja.tokenattributes;
 
 import org.apache.lucene.analysis.ja.Token;
-import org.apache.lucene.analysis.ja.util.ToStringUtil;
+import org.apache.lucene.analysis.ja.dict.ToStringUtil;
 import org.apache.lucene.util.AttributeImpl;
 import org.apache.lucene.util.AttributeReflector;
 
 /** Attribute for Kuromoji inflection data. */
-public class InflectionAttributeImpl extends AttributeImpl
-    implements InflectionAttribute, Cloneable {
+public class InflectionAttributeImpl extends AttributeImpl implements InflectionAttribute {
   private Token token;
 
   @Override

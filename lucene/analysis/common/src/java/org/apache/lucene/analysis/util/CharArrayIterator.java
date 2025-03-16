@@ -26,7 +26,7 @@ import java.util.Locale;
  * @lucene.internal
  */
 public abstract class CharArrayIterator implements CharacterIterator {
-  private char array[];
+  private char[] array;
   private int start;
   private int index;
   private int length;
@@ -51,7 +51,7 @@ public abstract class CharArrayIterator implements CharacterIterator {
    * @param start offset into buffer
    * @param length maximum length to examine
    */
-  public void setText(final char array[], int start, int length) {
+  public void setText(final char[] array, int start, int length) {
     this.array = array;
     this.start = start;
     this.index = start;
@@ -192,7 +192,9 @@ public abstract class CharArrayIterator implements CharacterIterator {
       bi.setText("\udb40\udc53");
       bi.next();
       v = false;
-    } catch (Exception e) {
+    } catch (
+        @SuppressWarnings("unused")
+        Exception e) {
       v = true;
     }
     HAS_BUGGY_BREAKITERATORS = v;

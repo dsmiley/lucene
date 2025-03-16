@@ -23,10 +23,28 @@ import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
 import javax.xml.parsers.ParserConfigurationException;
 import org.apache.lucene.analysis.Analyzer;
+import org.apache.lucene.queries.spans.SpanQuery;
 import org.apache.lucene.queryparser.classic.QueryParser;
-import org.apache.lucene.queryparser.xml.builders.*;
+import org.apache.lucene.queryparser.xml.builders.BooleanQueryBuilder;
+import org.apache.lucene.queryparser.xml.builders.BoostingTermBuilder;
+import org.apache.lucene.queryparser.xml.builders.ConstantScoreQueryBuilder;
+import org.apache.lucene.queryparser.xml.builders.DisjunctionMaxQueryBuilder;
+import org.apache.lucene.queryparser.xml.builders.MatchAllDocsQueryBuilder;
+import org.apache.lucene.queryparser.xml.builders.PointRangeQueryBuilder;
+import org.apache.lucene.queryparser.xml.builders.RangeQueryBuilder;
+import org.apache.lucene.queryparser.xml.builders.SpanFirstBuilder;
+import org.apache.lucene.queryparser.xml.builders.SpanNearBuilder;
+import org.apache.lucene.queryparser.xml.builders.SpanNotBuilder;
+import org.apache.lucene.queryparser.xml.builders.SpanOrBuilder;
+import org.apache.lucene.queryparser.xml.builders.SpanOrTermsBuilder;
+import org.apache.lucene.queryparser.xml.builders.SpanPositionRangeBuilder;
+import org.apache.lucene.queryparser.xml.builders.SpanQueryBuilder;
+import org.apache.lucene.queryparser.xml.builders.SpanQueryBuilderFactory;
+import org.apache.lucene.queryparser.xml.builders.SpanTermBuilder;
+import org.apache.lucene.queryparser.xml.builders.TermQueryBuilder;
+import org.apache.lucene.queryparser.xml.builders.TermsQueryBuilder;
+import org.apache.lucene.queryparser.xml.builders.UserInputQueryBuilder;
 import org.apache.lucene.search.Query;
-import org.apache.lucene.search.spans.SpanQuery;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 import org.xml.sax.EntityResolver;
@@ -34,7 +52,7 @@ import org.xml.sax.ErrorHandler;
 import org.xml.sax.SAXException;
 
 /** Assembles a QueryBuilder which uses only core Lucene Query objects */
-public class CoreParser implements QueryBuilder, SpanQueryBuilder {
+public class CoreParser implements SpanQueryBuilder {
 
   protected String defaultField;
   protected Analyzer analyzer;
@@ -166,7 +184,9 @@ public class CoreParser implements QueryBuilder, SpanQueryBuilder {
     dbf.setValidating(false);
     try {
       dbf.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
-    } catch (ParserConfigurationException e) {
+    } catch (
+        @SuppressWarnings("unused")
+        ParserConfigurationException e) {
       // ignore since all implementations are required to support the
       // {@link javax.xml.XMLConstants#FEATURE_SECURE_PROCESSING} feature
     }
@@ -185,6 +205,7 @@ public class CoreParser implements QueryBuilder, SpanQueryBuilder {
     }
   }
 
+  @Override
   public Query getQuery(Element e) throws ParserException {
     return queryFactory.getQuery(e);
   }

@@ -16,24 +16,30 @@
  */
 package org.apache.lucene.index;
 
-import java.io.*;
+import java.io.IOException;
 import java.nio.file.Path;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
-import org.apache.lucene.analysis.MockAnalyzer;
 import org.apache.lucene.codecs.simpletext.SimpleTextCodec;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field;
 import org.apache.lucene.index.IndexWriterConfig.OpenMode;
-import org.apache.lucene.store.AlreadyClosedException;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.IOContext;
 import org.apache.lucene.store.IndexInput;
 import org.apache.lucene.store.IndexOutput;
-import org.apache.lucene.store.MockDirectoryWrapper;
+import org.apache.lucene.tests.analysis.MockAnalyzer;
+import org.apache.lucene.tests.index.RandomIndexWriter;
+import org.apache.lucene.tests.store.MockDirectoryWrapper;
+import org.apache.lucene.tests.util.LuceneTestCase;
+import org.apache.lucene.tests.util.TestUtil;
 import org.apache.lucene.util.InfoStream;
-import org.apache.lucene.util.LuceneTestCase;
-import org.apache.lucene.util.TestUtil;
 
 /*
   Verify we can read the pre-2.1 file format, do searches
@@ -112,7 +118,7 @@ public class TestIndexFileDeleter extends LuceneTestCase {
     // non-existent segment:
     copyFile(dir, "_0_1" + ext, "_188_1" + ext);
 
-    String cfsFiles0[] =
+    String[] cfsFiles0 =
         si0.getCodec() instanceof SimpleTextCodec
             ? new String[] {"_0.scf"}
             : new String[] {"_0.cfs", "_0.cfe"};
@@ -128,15 +134,15 @@ public class TestIndexFileDeleter extends LuceneTestCase {
     // TODO: assert is bogus (relies upon codec-specific filenames)
     assertTrue(slowFileExists(dir, "_3.fdt") || slowFileExists(dir, "_3.fld"));
 
-    String cfsFiles3[] =
+    String[] cfsFiles3 =
         si3.getCodec() instanceof SimpleTextCodec
             ? new String[] {"_3.scf"}
             : new String[] {"_3.cfs", "_3.cfe"};
     for (String f : cfsFiles3) {
-      assertTrue(!slowFileExists(dir, f));
+      assertFalse(slowFileExists(dir, f));
     }
 
-    String cfsFiles1[] =
+    String[] cfsFiles1 =
         si1.getCodec() instanceof SimpleTextCodec
             ? new String[] {"_1.scf"}
             : new String[] {"_1.cfs", "_1.cfe"};
@@ -178,22 +184,14 @@ public class TestIndexFileDeleter extends LuceneTestCase {
     Set<String> set2 = new HashSet<>();
     Set<String> extra = new HashSet<>();
 
-    for (int x = 0; x < files1.length; x++) {
-      set1.add(files1[x]);
-    }
-    for (int x = 0; x < files2.length; x++) {
-      set2.add(files2[x]);
-    }
-    Iterator<String> i1 = set1.iterator();
-    while (i1.hasNext()) {
-      String o = i1.next();
+    Collections.addAll(set1, files1);
+    Collections.addAll(set2, files2);
+    for (String o : set1) {
       if (!set2.contains(o)) {
         extra.add(o);
       }
     }
-    Iterator<String> i2 = set2.iterator();
-    while (i2.hasNext()) {
-      String o = i2.next();
+    for (String o : set2) {
       if (!set1.contains(o)) {
         extra.add(o);
       }
@@ -452,8 +450,7 @@ public class TestIndexFileDeleter extends LuceneTestCase {
               // suppress only FakeIOException:
               if (exc instanceof RuntimeException && exc.getMessage().equals("fake fail")) {
                 // ok to ignore
-              } else if ((exc instanceof AlreadyClosedException
-                      || exc instanceof IllegalStateException)
+              } else if (exc instanceof IllegalStateException
                   && exc.getCause() != null
                   && "fake fail".equals(exc.getCause().getMessage())) {
                 // also ok to ignore
@@ -573,6 +570,53 @@ public class TestIndexFileDeleter extends LuceneTestCase {
         }
       }
       dir.close();
+    }
+  }
+
+  public void testThrowExceptionWhileDeleteCommits() throws Exception {
+    try (MockDirectoryWrapper dir = newMockDirectory()) {
+      final AtomicBoolean failOnDeleteCommits = new AtomicBoolean();
+      dir.failOn(
+          new MockDirectoryWrapper.Failure() {
+            @Override
+            public void eval(MockDirectoryWrapper dir) throws IOException {
+              if (failOnDeleteCommits.get()) {
+                if (callStackContains(IndexFileDeleter.class, "deleteCommits")
+                    && callStackContains(MockDirectoryWrapper.class, "deleteFile")
+                    && random().nextInt(4) == 1) {
+                  throw new MockDirectoryWrapper.FakeIOException();
+                }
+              }
+            }
+          });
+      final SnapshotDeletionPolicy snapshotDeletionPolicy =
+          new SnapshotDeletionPolicy(new KeepOnlyLastCommitDeletionPolicy());
+      final IndexWriterConfig config =
+          newIndexWriterConfig().setIndexDeletionPolicy(snapshotDeletionPolicy);
+
+      try (RandomIndexWriter writer = new RandomIndexWriter(random(), dir, config)) {
+        writer.addDocument(new Document());
+        writer.commit();
+
+        final IndexCommit snapshotCommit = snapshotDeletionPolicy.snapshot();
+        int commits = TestUtil.nextInt(random(), 1, 3);
+        for (int i = 0; i < commits; i++) {
+          writer.addDocument(new Document());
+          writer.commit();
+        }
+        snapshotDeletionPolicy.release(snapshotCommit);
+        failOnDeleteCommits.set(true);
+        try {
+          writer.w.deleteUnusedFiles();
+        } catch (IOException e) {
+          assertTrue(e instanceof MockDirectoryWrapper.FakeIOException);
+        }
+        failOnDeleteCommits.set(false);
+        for (int c = 0; c < commits; c++) {
+          writer.addDocument(new Document());
+          writer.commit();
+        }
+      }
     }
   }
 }

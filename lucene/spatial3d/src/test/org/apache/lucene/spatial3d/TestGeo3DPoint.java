@@ -27,17 +27,18 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Random;
 import java.util.Set;
+import java.util.function.IntSupplier;
 import org.apache.lucene.codecs.Codec;
 import org.apache.lucene.codecs.FilterCodec;
 import org.apache.lucene.codecs.PointsFormat;
 import org.apache.lucene.codecs.PointsReader;
 import org.apache.lucene.codecs.PointsWriter;
-import org.apache.lucene.codecs.lucene86.Lucene86PointsReader;
-import org.apache.lucene.codecs.lucene86.Lucene86PointsWriter;
+import org.apache.lucene.codecs.lucene90.Lucene90PointsReader;
+import org.apache.lucene.codecs.lucene90.Lucene90PointsWriter;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field;
 import org.apache.lucene.document.NumericDocValuesField;
-import org.apache.lucene.geo.GeoTestUtil;
+import org.apache.lucene.document.StringField;
 import org.apache.lucene.geo.Polygon;
 import org.apache.lucene.geo.Rectangle;
 import org.apache.lucene.index.DirectoryReader;
@@ -45,20 +46,16 @@ import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.IndexWriterConfig;
 import org.apache.lucene.index.LeafReader;
-import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.index.MultiDocValues;
 import org.apache.lucene.index.NumericDocValues;
 import org.apache.lucene.index.PointValues.IntersectVisitor;
 import org.apache.lucene.index.PointValues.Relation;
-import org.apache.lucene.index.RandomIndexWriter;
 import org.apache.lucene.index.ReaderUtil;
 import org.apache.lucene.index.SegmentReadState;
 import org.apache.lucene.index.SegmentWriteState;
 import org.apache.lucene.index.Term;
 import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.Query;
-import org.apache.lucene.search.ScoreMode;
-import org.apache.lucene.search.SimpleCollector;
 import org.apache.lucene.spatial3d.geom.GeoArea;
 import org.apache.lucene.spatial3d.geom.GeoAreaFactory;
 import org.apache.lucene.spatial3d.geom.GeoBBoxFactory;
@@ -75,12 +72,15 @@ import org.apache.lucene.spatial3d.geom.XYZBounds;
 import org.apache.lucene.spatial3d.geom.XYZSolid;
 import org.apache.lucene.spatial3d.geom.XYZSolidFactory;
 import org.apache.lucene.store.Directory;
+import org.apache.lucene.tests.geo.GeoTestUtil;
+import org.apache.lucene.tests.index.RandomIndexWriter;
+import org.apache.lucene.tests.search.FixedBitSetCollector;
+import org.apache.lucene.tests.util.LuceneTestCase;
+import org.apache.lucene.tests.util.TestUtil;
 import org.apache.lucene.util.DocIdSetBuilder;
 import org.apache.lucene.util.FixedBitSet;
 import org.apache.lucene.util.IOUtils;
-import org.apache.lucene.util.LuceneTestCase;
 import org.apache.lucene.util.NumericUtils;
-import org.apache.lucene.util.TestUtil;
 
 public class TestGeo3DPoint extends LuceneTestCase {
 
@@ -108,12 +108,12 @@ public class TestGeo3DPoint extends LuceneTestCase {
           return new PointsFormat() {
             @Override
             public PointsWriter fieldsWriter(SegmentWriteState writeState) throws IOException {
-              return new Lucene86PointsWriter(writeState, maxPointsInLeafNode, maxMBSortInHeap);
+              return new Lucene90PointsWriter(writeState, maxPointsInLeafNode, maxMBSortInHeap);
             }
 
             @Override
             public PointsReader fieldsReader(SegmentReadState readState) throws IOException {
-              return new Lucene86PointsReader(readState);
+              return new Lucene90PointsReader(readState);
             }
           };
         }
@@ -144,7 +144,7 @@ public class TestGeo3DPoint extends LuceneTestCase {
                         planetModel, toRadians(50), toRadians(-97), Math.PI / 180.)),
                 1)
             .totalHits
-            .value);
+            .value());
     w.close();
     r.close();
     dir.close();
@@ -155,7 +155,15 @@ public class TestGeo3DPoint extends LuceneTestCase {
   }
 
   private static class Cell {
-    static int nextCellID;
+    static final IntSupplier nextCellID =
+        new IntSupplier() {
+          int counter = 0;
+
+          @Override
+          public int getAsInt() {
+            return counter++;
+          }
+        };
 
     final Cell parent;
     final int cellID;
@@ -182,7 +190,7 @@ public class TestGeo3DPoint extends LuceneTestCase {
       this.yMaxEnc = yMaxEnc;
       this.zMinEnc = zMinEnc;
       this.zMaxEnc = zMaxEnc;
-      this.cellID = nextCellID++;
+      this.cellID = nextCellID.getAsInt();
       this.splitCount = splitCount;
       this.planetModel = planetModel;
     }
@@ -610,8 +618,9 @@ public class TestGeo3DPoint extends LuceneTestCase {
 
     boolean haveRealDoc = false;
 
+    Random random = random();
     for (int docID = 0; docID < numPoints; docID++) {
-      int x = random().nextInt(20);
+      int x = random.nextInt(20);
       if (x == 17) {
         // Some docs don't have a point:
         lats[docID] = Double.NaN;
@@ -624,7 +633,7 @@ public class TestGeo3DPoint extends LuceneTestCase {
       if (docID > 0 && x < 3 && haveRealDoc) {
         int oldDocID;
         while (true) {
-          oldDocID = random().nextInt(docID);
+          oldDocID = random.nextInt(docID);
           if (Double.isNaN(lats[oldDocID]) == false) {
             break;
           }
@@ -752,7 +761,9 @@ public class TestGeo3DPoint extends LuceneTestCase {
               // System.err.println("Generated: "+q);
               // assertTrue(false);
               return q;
-            } catch (IllegalArgumentException e) {
+            } catch (
+                @SuppressWarnings("unused")
+                IllegalArgumentException e) {
               continue;
             }
           }
@@ -777,7 +788,9 @@ public class TestGeo3DPoint extends LuceneTestCase {
               // System.err.println("Generated: "+q);
               // assertTrue(false);
               return q;
-            } catch (IllegalArgumentException e) {
+            } catch (
+                @SuppressWarnings("unused")
+                IllegalArgumentException e) {
               continue;
             }
           }
@@ -794,7 +807,9 @@ public class TestGeo3DPoint extends LuceneTestCase {
                   GeoTestUtil.nextLatitude(),
                   GeoTestUtil.nextLongitude(),
                   widthMeters);
-            } catch (IllegalArgumentException e) {
+            } catch (
+                @SuppressWarnings("unused")
+                IllegalArgumentException e) {
               continue;
             }
           }
@@ -806,7 +821,9 @@ public class TestGeo3DPoint extends LuceneTestCase {
             try {
               return Geo3DPoint.newBoxQuery(
                   field, planetModel, r.minLat, r.maxLat, r.minLon, r.maxLon);
-            } catch (IllegalArgumentException e) {
+            } catch (
+                @SuppressWarnings("unused")
+                IllegalArgumentException e) {
               continue;
             }
           }
@@ -826,7 +843,9 @@ public class TestGeo3DPoint extends LuceneTestCase {
             }
             try {
               return Geo3DPoint.newPathQuery(field, latitudes, longitudes, width, planetModel);
-            } catch (IllegalArgumentException e) {
+            } catch (
+                @SuppressWarnings("unused")
+                IllegalArgumentException e) {
               // This is what happens when we create a shape that is invalid.  Although it is
               // conceivable that there are cases where
               // the exception is thrown incorrectly, we aren't going to be able to do that in this
@@ -866,7 +885,9 @@ public class TestGeo3DPoint extends LuceneTestCase {
                 continue;
               }
               return rval;
-            } catch (IllegalArgumentException e) {
+            } catch (
+                @SuppressWarnings("unused")
+                IllegalArgumentException e) {
               // This is what happens when we create a shape that is invalid.  Although it is
               // conceivable that there are cases where
               // the exception is thrown incorrectly, we aren't going to be able to do that in this
@@ -886,7 +907,9 @@ public class TestGeo3DPoint extends LuceneTestCase {
 
             try {
               return GeoCircleFactory.makeGeoCircle(planetModel, lat, lon, angle);
-            } catch (IllegalArgumentException iae) {
+            } catch (
+                @SuppressWarnings("unused")
+                IllegalArgumentException iae) {
               // angle is too small; try again:
               continue;
             }
@@ -928,7 +951,9 @@ public class TestGeo3DPoint extends LuceneTestCase {
             }
             try {
               return GeoPathFactory.makeGeoPath(planetModel, width, points);
-            } catch (IllegalArgumentException e) {
+            } catch (
+                @SuppressWarnings("unused")
+                IllegalArgumentException e) {
               // This is what happens when we create a shape that is invalid.  Although it is
               // conceivable that there are cases where
               // the exception is thrown incorrectly, we aren't going to be able to do that in this
@@ -976,7 +1001,7 @@ public class TestGeo3DPoint extends LuceneTestCase {
     IndexWriter w = new IndexWriter(dir, iwc);
     for (int id = 0; id < points.length; id++) {
       Document doc = new Document();
-      doc.add(newStringField("id", "" + id, Field.Store.NO));
+      doc.add(new StringField("id", "" + id, Field.Store.NO));
       doc.add(new NumericDocValuesField("id", id));
       GeoPoint point = points[id];
       if (point != null) {
@@ -1023,29 +1048,7 @@ public class TestGeo3DPoint extends LuceneTestCase {
         System.err.println("  using query: " + query);
       }
 
-      final FixedBitSet hits = new FixedBitSet(r.maxDoc());
-
-      s.search(
-          query,
-          new SimpleCollector() {
-
-            private int docBase;
-
-            @Override
-            public ScoreMode scoreMode() {
-              return ScoreMode.COMPLETE_NO_SCORES;
-            }
-
-            @Override
-            protected void doSetNextReader(LeafReaderContext context) throws IOException {
-              docBase = context.docBase;
-            }
-
-            @Override
-            public void collect(int doc) {
-              hits.set(docBase + doc);
-            }
-          });
+      final FixedBitSet hits = s.search(query, FixedBitSetCollector.createManager(r.maxDoc()));
 
       if (VERBOSE) {
         System.err.println("  hitCount: " + hits.cardinality());
@@ -1180,17 +1183,17 @@ public class TestGeo3DPoint extends LuceneTestCase {
     int iters = atLeast(100);
     for (int i = 0; i < iters; i++) {
       // Create a polygon that's less than 180 degrees
-      final Polygon clockWise = makePoly(pm, randomPole, true, true);
+      makePoly(pm, randomPole, true, true);
     }
     iters = atLeast(100);
     for (int i = 0; i < iters; i++) {
       // Create a polygon that's greater than 180 degrees
-      final Polygon counterClockWise = makePoly(pm, randomPole, false, true);
+      makePoly(pm, randomPole, false, true);
     }
   }
 
-  protected static double MINIMUM_EDGE_ANGLE = toRadians(5.0);
-  protected static double MINIMUM_ARC_ANGLE = toRadians(1.0);
+  private static final double MINIMUM_EDGE_ANGLE = toRadians(5.0);
+  private static final double MINIMUM_ARC_ANGLE = toRadians(1.0);
 
   /**
    * Cook up a random Polygon that makes sense, with possible nested polygon within. This is part of
@@ -1260,11 +1263,11 @@ public class TestGeo3DPoint extends LuceneTestCase {
       // the polygon, so we're going to use Geo3D to help us select those given the points we just
       // made.
 
-      final int holeCount = createHoles ? TestUtil.nextInt(random(), 0, 2) : 0;
-
       final List<Polygon> holeList = new ArrayList<>();
 
       /* Hole logic is broken and needs rethinking
+
+      final int holeCount = createHoles ? TestUtil.nextInt(random(), 0, 2) : 0;
 
       // Create the geo3d polygon, so we can test out our poles.
       final GeoPolygon poly;

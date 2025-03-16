@@ -17,7 +17,6 @@
 package org.apache.lucene.queries.function;
 
 import org.apache.lucene.analysis.Analyzer;
-import org.apache.lucene.analysis.MockAnalyzer;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field;
 import org.apache.lucene.document.FieldType;
@@ -27,17 +26,18 @@ import org.apache.lucene.document.SortedNumericDocValuesField;
 import org.apache.lucene.document.StoredField;
 import org.apache.lucene.document.TextField;
 import org.apache.lucene.index.IndexWriterConfig;
-import org.apache.lucene.index.RandomIndexWriter;
 import org.apache.lucene.queries.function.valuesource.FloatFieldSource;
 import org.apache.lucene.queries.function.valuesource.IntFieldSource;
 import org.apache.lucene.queries.function.valuesource.MultiValuedFloatFieldSource;
 import org.apache.lucene.queries.function.valuesource.MultiValuedIntFieldSource;
 import org.apache.lucene.search.SortedNumericSelector;
 import org.apache.lucene.store.Directory;
+import org.apache.lucene.tests.analysis.MockAnalyzer;
+import org.apache.lucene.tests.index.RandomIndexWriter;
+import org.apache.lucene.tests.util.LuceneTestCase;
+import org.apache.lucene.tests.util.TestUtil;
 import org.apache.lucene.util.BytesRef;
-import org.apache.lucene.util.LuceneTestCase;
 import org.apache.lucene.util.NumericUtils;
-import org.apache.lucene.util.TestUtil;
 import org.junit.AfterClass;
 import org.junit.Ignore;
 
@@ -49,18 +49,20 @@ public abstract class FunctionTestSetup extends LuceneTestCase {
    * Actual score computation order is slightly different than assumptios this allows for a small
    * amount of variation
    */
-  protected static float TEST_SCORE_TOLERANCE_DELTA = 0.001f;
+  protected static final float TEST_SCORE_TOLERANCE_DELTA = 0.001f;
 
   protected static final int N_DOCS = 17; // select a primary number > 2
 
   protected static final String ID_FIELD = "id";
   protected static final String TEXT_FIELD = "text";
   protected static final String INT_FIELD = "iii";
+
   /**
    * This field is multiValued and should give the exact same results as {@link #INT_FIELD} when
    * used with MIN selector
    */
   protected static final String INT_FIELD_MV_MIN = "iii_min";
+
   /**
    * This field is multiValued and should give the exact same results as {@link #INT_FIELD} when
    * used with MAX selector
@@ -68,11 +70,13 @@ public abstract class FunctionTestSetup extends LuceneTestCase {
   protected static final String INT_FIELD_MV_MAX = "iii_max";
 
   protected static final String FLOAT_FIELD = "fff";
+
   /**
    * This field is multiValued and should give the exact same results as {@link #FLOAT_FIELD} when
    * used with MIN selector
    */
   protected static final String FLOAT_FIELD_MV_MIN = "fff_min";
+
   /**
    * This field is multiValued and should give the exact same results as {@link #FLOAT_FIELD} when
    * used with MAX selector
@@ -90,7 +94,7 @@ public abstract class FunctionTestSetup extends LuceneTestCase {
   protected ValueSource FLOAT_MV_MAX_VALUESOURCE =
       new MultiValuedFloatFieldSource(FLOAT_FIELD_MV_MAX, SortedNumericSelector.Type.MAX);
 
-  private static final String DOC_TEXT_LINES[] = {
+  private static final String[] DOC_TEXT_LINES = {
     "Well, this is just some plain text we use for creating the ",
     "test documents. It used to be a text from an online collection ",
     "devoted to first aid, but if there was there an (online) lawyers ",
@@ -107,7 +111,10 @@ public abstract class FunctionTestSetup extends LuceneTestCase {
     "text for the test, but oh much much safer. ",
   };
 
+  @SuppressWarnings("NonFinalStaticField")
   protected static Directory dir;
+
+  @SuppressWarnings("NonFinalStaticField")
   protected static Analyzer anlzr;
 
   @AfterClass
@@ -132,7 +139,7 @@ public abstract class FunctionTestSetup extends LuceneTestCase {
     RandomIndexWriter iw = new RandomIndexWriter(random(), dir, iwc);
     // add docs not exactly in natural ID order, to verify we do check the order of docs by scores
     int remaining = N_DOCS;
-    boolean done[] = new boolean[N_DOCS];
+    boolean[] done = new boolean[N_DOCS];
     int i = 0;
     while (remaining > 0) {
       if (done[i]) {

@@ -24,7 +24,6 @@ import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.atomic.AtomicInteger;
-import org.apache.lucene.analysis.MockAnalyzer;
 import org.apache.lucene.codecs.Codec;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field;
@@ -33,10 +32,13 @@ import org.apache.lucene.store.AlreadyClosedException;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.IOContext;
 import org.apache.lucene.store.IndexInput;
+import org.apache.lucene.tests.analysis.MockAnalyzer;
+import org.apache.lucene.tests.index.RandomIndexWriter;
+import org.apache.lucene.tests.util.LuceneTestCase;
+import org.apache.lucene.tests.util.TestUtil;
 import org.apache.lucene.util.IOUtils;
-import org.apache.lucene.util.LuceneTestCase;
 import org.apache.lucene.util.StringHelper;
-import org.apache.lucene.util.TestUtil;
+import org.apache.lucene.util.SuppressForbidden;
 import org.apache.lucene.util.Version;
 
 @LuceneTestCase.SuppressCodecs({"SimpleText", "Direct"})
@@ -112,7 +114,6 @@ public class TestIndexWriterThreadsToSegments extends LuceneTestCase {
   private static final int MAX_THREADS_AT_ONCE = 10;
 
   static class CheckSegmentCount implements Runnable, Closeable {
-    private final IndexWriter w;
     private final AtomicInteger maxThreadCountPerIter;
     private final AtomicInteger indexingCount;
     private DirectoryReader r;
@@ -120,7 +121,6 @@ public class TestIndexWriterThreadsToSegments extends LuceneTestCase {
     public CheckSegmentCount(
         IndexWriter w, AtomicInteger maxThreadCountPerIter, AtomicInteger indexingCount)
         throws IOException {
-      this.w = w;
       this.maxThreadCountPerIter = maxThreadCountPerIter;
       this.indexingCount = indexingCount;
       r = DirectoryReader.open(w);
@@ -251,12 +251,14 @@ public class TestIndexWriterThreadsToSegments extends LuceneTestCase {
     IOUtils.close(checker, w, dir);
   }
 
+  @SuppressForbidden(reason = "Thread sleep")
   public void testManyThreadsClose() throws Exception {
     Directory dir = newDirectory();
     Random r = random();
     IndexWriterConfig iwc = newIndexWriterConfig(r, new MockAnalyzer(r));
     iwc.setCommitOnClose(false);
     final RandomIndexWriter w = new RandomIndexWriter(r, dir, iwc);
+    TestUtil.reduceOpenFiles(w.w);
     w.setDoRandomForceMerge(false);
     Thread[] threads = new Thread[TestUtil.nextInt(random(), 4, 30)];
     final CountDownLatch startingGun = new CountDownLatch(1);
@@ -276,7 +278,9 @@ public class TestIndexWriterThreadsToSegments extends LuceneTestCase {
                 for (int j = 0; j < 1000; j++) {
                   w.addDocument(doc);
                 }
-              } catch (AlreadyClosedException ace) {
+              } catch (
+                  @SuppressWarnings("unused")
+                  AlreadyClosedException ace) {
                 // ok
               } catch (Exception e) {
                 throw new RuntimeException(e);
@@ -291,7 +295,9 @@ public class TestIndexWriterThreadsToSegments extends LuceneTestCase {
     Thread.sleep(100);
     try {
       w.close();
-    } catch (IllegalStateException ise) {
+    } catch (
+        @SuppressWarnings("unused")
+        IllegalStateException ise) {
       // OK but not required
     }
     for (Thread t : threads) {
@@ -301,6 +307,8 @@ public class TestIndexWriterThreadsToSegments extends LuceneTestCase {
     dir.close();
   }
 
+  // TODO: can we make this test more efficient so it doesn't need to be nightly?
+  @LuceneTestCase.Nightly
   public void testDocsStuckInRAMForever() throws Exception {
     Directory dir = newDirectory();
     IndexWriterConfig iwc = new IndexWriterConfig(new MockAnalyzer(random()));
@@ -357,7 +365,7 @@ public class TestIndexWriterThreadsToSegments extends LuceneTestCase {
             String segName = IndexFileNames.parseSegmentName(fileName);
             if (segSeen.contains(segName) == false) {
               segSeen.add(segName);
-              byte id[] = readSegmentInfoID(dir, fileName);
+              byte[] id = readSegmentInfoID(dir, fileName);
               SegmentInfo si =
                   TestUtil.getDefaultCodec()
                       .segmentInfoFormat()
@@ -392,7 +400,7 @@ public class TestIndexWriterThreadsToSegments extends LuceneTestCase {
       in.readInt(); // magic
       in.readString(); // codec name
       in.readInt(); // version
-      byte id[] = new byte[StringHelper.ID_LENGTH];
+      byte[] id = new byte[StringHelper.ID_LENGTH];
       in.readBytes(id, 0, id.length);
       return id;
     }

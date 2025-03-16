@@ -24,7 +24,6 @@ import java.util.Arrays;
 import java.util.Random;
 import org.apache.lucene.document.ShapeField.QueryRelation;
 import org.apache.lucene.geo.Component2D;
-import org.apache.lucene.geo.ShapeTestUtil;
 import org.apache.lucene.geo.Tessellator;
 import org.apache.lucene.geo.XYCircle;
 import org.apache.lucene.geo.XYGeometry;
@@ -33,12 +32,15 @@ import org.apache.lucene.geo.XYPoint;
 import org.apache.lucene.geo.XYPolygon;
 import org.apache.lucene.geo.XYRectangle;
 import org.apache.lucene.search.Query;
-import org.apache.lucene.util.TestUtil;
+import org.apache.lucene.tests.geo.ShapeTestUtil;
+import org.apache.lucene.tests.util.TestUtil;
 
 /** Base test case for testing indexing and search functionality of cartesian geometry * */
 public abstract class BaseXYShapeTestCase extends BaseSpatialTestCase {
+  @Override
   protected abstract ShapeType getShapeType();
 
+  @Override
   protected Object nextShape() {
     return getShapeType().nextShape();
   }
@@ -207,39 +209,41 @@ public abstract class BaseXYShapeTestCase extends BaseSpatialTestCase {
   /** internal shape type for testing different shape types */
   protected enum ShapeType {
     POINT() {
+      @Override
       public XYPoint nextShape() {
-        return ShapeTestUtil.nextPoint();
+        return ShapeTestUtil.nextXYPoint();
       }
     },
     LINE() {
+      @Override
       public XYLine nextShape() {
         return ShapeTestUtil.nextLine();
       }
     },
     POLYGON() {
+      @Override
       public XYPolygon nextShape() {
         while (true) {
           XYPolygon p = ShapeTestUtil.nextPolygon();
           try {
-            Tessellator.tessellate(p);
+            Tessellator.tessellate(p, true);
             return p;
-          } catch (IllegalArgumentException e) {
+          } catch (
+              @SuppressWarnings("unused")
+              IllegalArgumentException e) {
             // if we can't tessellate; then random polygon generator created a malformed shape
           }
         }
       }
     },
     MIXED() {
+      @Override
       public Object nextShape() {
         return RandomPicks.randomFrom(random(), subList).nextShape();
       }
     };
 
-    static ShapeType[] subList;
-
-    static {
-      subList = new ShapeType[] {POINT, LINE, POLYGON};
-    }
+    private static final ShapeType[] subList = new ShapeType[] {POINT, LINE, POLYGON};
 
     public abstract Object nextShape();
   }

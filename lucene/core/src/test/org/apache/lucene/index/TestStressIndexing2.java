@@ -26,7 +26,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
-import org.apache.lucene.analysis.MockAnalyzer;
+import java.util.concurrent.ConcurrentHashMap;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field;
 import org.apache.lucene.document.FieldType;
@@ -35,25 +35,28 @@ import org.apache.lucene.index.IndexWriterConfig.OpenMode;
 import org.apache.lucene.search.DocIdSetIterator;
 import org.apache.lucene.search.TermQuery;
 import org.apache.lucene.store.Directory;
+import org.apache.lucene.tests.analysis.MockAnalyzer;
+import org.apache.lucene.tests.index.RandomIndexWriter;
+import org.apache.lucene.tests.util.LuceneTestCase;
+import org.apache.lucene.tests.util.TestUtil;
 import org.apache.lucene.util.Bits;
 import org.apache.lucene.util.BytesRef;
-import org.apache.lucene.util.LuceneTestCase;
-import org.apache.lucene.util.TestUtil;
 
 public class TestStressIndexing2 extends LuceneTestCase {
-  static int maxFields = 4;
-  static int bigFieldSize = 10;
-  static boolean sameFieldOrder = false;
-  static int mergeFactor = 3;
-  static int maxBufferedDocs = 3;
-  static int seed = 0;
+  int maxFields = 4;
+  int bigFieldSize = 10;
+  boolean sameFieldOrder = false;
+  int mergeFactor = 3;
+  int maxBufferedDocs = 3;
+  int seed = 0;
+  private final Map<String, FieldType> fieldTypes = new ConcurrentHashMap<>();
 
   public void testRandomIWReader() throws Throwable {
     Directory dir = newMaybeVirusCheckingDirectory();
 
     // TODO: verify equals using IW.getReader
     DocsAndWriter dw = indexRandomIWReader(5, 3, 100, dir);
-    DirectoryReader reader = dw.writer.getReader();
+    DirectoryReader reader = DirectoryReader.open(dw.writer);
     dw.writer.commit();
     verifyEquals(random(), reader, dir, "id");
     reader.close();
@@ -128,15 +131,9 @@ public class TestStressIndexing2 extends LuceneTestCase {
     }
   }
 
-  static Term idTerm = new Term("id", "");
   IndexingThread[] threads;
-  static Comparator<IndexableField> fieldNameComparator =
-      new Comparator<IndexableField>() {
-        @Override
-        public int compare(IndexableField o1, IndexableField o2) {
-          return o1.name().compareTo(o2.name());
-        }
-      };
+  private static final Comparator<IndexableField> fieldNameComparator =
+      Comparator.comparing(IndexableField::name);
 
   // This test avoids using any extra synchronization in the multiple
   // indexing threads to test that IndexWriter does correctly synchronize
@@ -163,12 +160,12 @@ public class TestStressIndexing2 extends LuceneTestCase {
     LogMergePolicy lmp = (LogMergePolicy) w.getConfig().getMergePolicy();
     lmp.setNoCFSRatio(0.0);
     lmp.setMergeFactor(mergeFactor);
-    /***
+    /*
      * w.setMaxMergeDocs(Integer.MAX_VALUE);
      * w.setMaxFieldLength(10000);
      * w.setRAMBufferSizeMB(1);
      * w.setMergeFactor(10);
-     ***/
+     */
 
     threads = new IndexingThread[nThreads];
     for (int i = 0; i < threads.length; i++) {
@@ -303,9 +300,10 @@ public class TestStressIndexing2 extends LuceneTestCase {
       // TODO: improve this
       LeafReader sub = ctx.reader();
       Bits liveDocs = sub.getLiveDocs();
+      StoredFields storedFields = sub.storedFields();
       System.out.println("  " + ((SegmentReader) sub).getSegmentInfo());
       for (int docID = 0; docID < sub.maxDoc(); docID++) {
-        Document doc = sub.document(docID);
+        Document doc = storedFields.document(docID);
         if (liveDocs == null || liveDocs.get(docID)) {
           System.out.println("    docID=" + docID + " id:" + doc.get("id"));
         } else {
@@ -405,20 +403,20 @@ public class TestStressIndexing2 extends LuceneTestCase {
 
       // verify stored fields are equivalent
       try {
-        verifyEquals(r1.document(id1), r2.document(id2));
+        verifyEquals(r1.storedFields().document(id1), r2.storedFields().document(id2));
       } catch (Throwable t) {
         System.out.println("FAILED id=" + term + " id1=" + id1 + " id2=" + id2 + " term=" + term);
-        System.out.println("  d1=" + r1.document(id1));
-        System.out.println("  d2=" + r2.document(id2));
+        System.out.println("  d1=" + r1.storedFields().document(id1));
+        System.out.println("  d2=" + r2.storedFields().document(id2));
         throw t;
       }
 
       try {
         // verify term vectors are equivalent
-        verifyEquals(r1.getTermVectors(id1), r2.getTermVectors(id2));
+        verifyEquals(r1.termVectors().get(id1), r2.termVectors().get(id2));
       } catch (Throwable e) {
         System.out.println("FAILED id=" + term + " id1=" + id1 + " id2=" + id2);
-        Fields tv1 = r1.getTermVectors(id1);
+        Fields tv1 = r1.termVectors().get(id1);
         System.out.println("  d1=" + tv1);
         if (tv1 != null) {
           PostingsEnum dpEnum = null;
@@ -451,7 +449,7 @@ public class TestStressIndexing2 extends LuceneTestCase {
           }
         }
 
-        Fields tv2 = r2.getTermVectors(id2);
+        Fields tv2 = r2.termVectors().get(id2);
         System.out.println("  d2=" + tv2);
         if (tv2 != null) {
           PostingsEnum dpEnum = null;
@@ -725,7 +723,7 @@ public class TestStressIndexing2 extends LuceneTestCase {
     assertFalse(fieldsEnum2.hasNext());
   }
 
-  private static class IndexingThread extends Thread {
+  private class IndexingThread extends Thread {
     IndexWriter w;
     int base;
     int range;
@@ -807,71 +805,58 @@ public class TestStressIndexing2 extends LuceneTestCase {
       Field idField = newField("id", idString, customType1);
       fields.add(idField);
 
-      Map<String, FieldType> tvTypes = new HashMap<>();
-
       int nFields = nextInt(maxFields);
       for (int i = 0; i < nFields; i++) {
-
         String fieldName = "f" + nextInt(100);
-        FieldType customType;
-
-        // Use the same term vector settings if we already
-        // added this field to the doc:
-        FieldType oldTVType = tvTypes.get(fieldName);
-        if (oldTVType != null) {
-          customType = new FieldType(oldTVType);
-        } else {
-          customType = new FieldType();
-          switch (nextInt(4)) {
-            case 0:
-              break;
-            case 1:
-              customType.setStoreTermVectors(true);
-              break;
-            case 2:
-              customType.setStoreTermVectors(true);
-              customType.setStoreTermVectorPositions(true);
-              break;
-            case 3:
-              customType.setStoreTermVectors(true);
-              customType.setStoreTermVectorOffsets(true);
-              break;
-          }
-          FieldType newType = new FieldType(customType);
-          newType.freeze();
-          tvTypes.put(fieldName, newType);
-        }
-
-        switch (nextInt(4)) {
-          case 0:
-            customType.setStored(true);
-            customType.setOmitNorms(true);
-            customType.setIndexOptions(IndexOptions.DOCS_AND_FREQS_AND_POSITIONS);
-            customType.freeze();
-            fields.add(newField(fieldName, getString(1), customType));
-            break;
-          case 1:
-            customType.setIndexOptions(IndexOptions.DOCS_AND_FREQS_AND_POSITIONS);
-            customType.setTokenized(true);
-            customType.freeze();
-            fields.add(newField(fieldName, getString(0), customType));
-            break;
-          case 2:
-            customType.setStored(true);
-            customType.setStoreTermVectors(false);
-            customType.setStoreTermVectorOffsets(false);
-            customType.setStoreTermVectorPositions(false);
-            customType.freeze();
-            fields.add(newField(fieldName, getString(0), customType));
-            break;
-          case 3:
-            customType.setStored(true);
-            customType.setIndexOptions(IndexOptions.DOCS_AND_FREQS_AND_POSITIONS);
-            customType.setTokenized(true);
-            customType.freeze();
-            fields.add(newField(fieldName, getString(bigFieldSize), customType));
-            break;
-        }
+        // Use the same field type if we already added this field to the index
+        FieldType fieldType =
+            fieldTypes.computeIfAbsent(
+                fieldName,
+                _ -> {
+                  FieldType ft = new FieldType();
+                  switch (nextInt(4)) {
+                    case 0:
+                      break;
+                    case 1:
+                      ft.setStoreTermVectors(true);
+                      break;
+                    case 2:
+                      ft.setStoreTermVectors(true);
+                      ft.setStoreTermVectorPositions(true);
+                      break;
+                    case 3:
+                      ft.setStoreTermVectors(true);
+                      ft.setStoreTermVectorOffsets(true);
+                      break;
+                  }
+                  switch (nextInt(4)) {
+                    case 0:
+                      ft.setStored(true);
+                      ft.setOmitNorms(true);
+                      ft.setIndexOptions(IndexOptions.DOCS_AND_FREQS_AND_POSITIONS);
+                      break;
+                    case 1:
+                      ft.setIndexOptions(IndexOptions.DOCS_AND_FREQS_AND_POSITIONS);
+                      ft.setTokenized(true);
+                      break;
+                    case 2:
+                      ft.setStored(true);
+                      ft.setStoreTermVectors(false);
+                      ft.setStoreTermVectorOffsets(false);
+                      ft.setStoreTermVectorPositions(false);
+                      break;
+                    case 3:
+                      ft.setStored(true);
+                      ft.setIndexOptions(IndexOptions.DOCS_AND_FREQS_AND_POSITIONS);
+                      ft.setTokenized(true);
+                      break;
+                  }
+                  ft.freeze();
+                  return ft;
+                });
+        int nTokens = nextInt(3);
+        nTokens = nTokens < 2 ? nTokens : bigFieldSize;
+        fields.add(newField(fieldName, getString(nTokens), fieldType));
       }
 
       if (sameFieldOrder) {

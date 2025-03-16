@@ -19,16 +19,17 @@ package org.apache.lucene.index;
 import static org.apache.lucene.index.IndexWriter.isCongruentSort;
 
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.Executor;
+import java.util.concurrent.TimeUnit;
 import org.apache.lucene.codecs.DocValuesProducer;
 import org.apache.lucene.codecs.FieldsProducer;
+import org.apache.lucene.codecs.KnnVectorsReader;
 import org.apache.lucene.codecs.NormsProducer;
 import org.apache.lucene.codecs.PointsReader;
 import org.apache.lucene.codecs.StoredFieldsReader;
 import org.apache.lucene.codecs.TermVectorsReader;
-import org.apache.lucene.codecs.VectorReader;
 import org.apache.lucene.search.Sort;
 import org.apache.lucene.util.Bits;
 import org.apache.lucene.util.InfoStream;
@@ -44,10 +45,6 @@ public class MergeState {
 
   /** Maps document IDs from old segments to document IDs in the new segment */
   public final DocMap[] docMaps;
-
-  // Only used by IW when it must remap deletes that arrived against the merging segments while a
-  // merge was running:
-  final DocMap[] leafDocMaps;
 
   /** {@link SegmentInfo} of the newly merged segment. */
   public final SegmentInfo segmentInfo;
@@ -80,7 +77,7 @@ public class MergeState {
   public final PointsReader[] pointsReaders;
 
   /** Vector readers to merge */
-  public final VectorReader[] vectorReaders;
+  public final KnnVectorsReader[] knnVectorsReaders;
 
   /** Max docs per reader */
   public final int[] maxDocs;
@@ -88,19 +85,23 @@ public class MergeState {
   /** InfoStream for debugging messages. */
   public final InfoStream infoStream;
 
+  /** Executor for intra merge activity */
+  public final Executor intraMergeTaskExecutor;
+
   /** Indicates if the index needs to be sorted * */
   public boolean needsIndexSort;
 
   /** Sole constructor. */
-  MergeState(List<CodecReader> originalReaders, SegmentInfo segmentInfo, InfoStream infoStream)
+  MergeState(
+      List<CodecReader> readers,
+      SegmentInfo segmentInfo,
+      InfoStream infoStream,
+      Executor intraMergeTaskExecutor)
       throws IOException {
-
+    verifyIndexSort(readers, segmentInfo);
     this.infoStream = infoStream;
-
-    final Sort indexSort = segmentInfo.getIndexSort();
-    int numReaders = originalReaders.size();
-    leafDocMaps = new DocMap[numReaders];
-    List<CodecReader> readers = maybeSortReaders(originalReaders, segmentInfo);
+    int numReaders = readers.size();
+    this.intraMergeTaskExecutor = intraMergeTaskExecutor;
 
     maxDocs = new int[numReaders];
     fieldsProducers = new FieldsProducer[numReaders];
@@ -109,7 +110,7 @@ public class MergeState {
     termVectorsReaders = new TermVectorsReader[numReaders];
     docValuesProducers = new DocValuesProducer[numReaders];
     pointsReaders = new PointsReader[numReaders];
-    vectorReaders = new VectorReader[numReaders];
+    knnVectorsReaders = new KnnVectorsReader[numReaders];
     fieldInfos = new FieldInfos[numReaders];
     liveDocs = new Bits[numReaders];
 
@@ -141,15 +142,19 @@ public class MergeState {
         termVectorsReaders[i] = termVectorsReaders[i].getMergeInstance();
       }
 
-      fieldsProducers[i] = reader.getPostingsReader().getMergeInstance();
+      fieldsProducers[i] = reader.getPostingsReader();
+      if (fieldsProducers[i] != null) {
+        fieldsProducers[i] = fieldsProducers[i].getMergeInstance();
+      }
+
       pointsReaders[i] = reader.getPointsReader();
       if (pointsReaders[i] != null) {
         pointsReaders[i] = pointsReaders[i].getMergeInstance();
       }
 
-      vectorReaders[i] = reader.getVectorReader();
-      if (vectorReaders[i] != null) {
-        vectorReaders[i] = vectorReaders[i].getMergeInstance();
+      knnVectorsReaders[i] = reader.getVectorReader();
+      if (knnVectorsReaders[i] != null) {
+        knnVectorsReaders[i] = knnVectorsReaders[i].getMergeInstance();
       }
 
       numDocs += reader.numDocs();
@@ -158,7 +163,7 @@ public class MergeState {
     segmentInfo.setMaxDoc(numDocs);
 
     this.segmentInfo = segmentInfo;
-    this.docMaps = buildDocMaps(readers, indexSort);
+    this.docMaps = buildDocMaps(readers, segmentInfo.getIndexSort());
   }
 
   // Remap docIDs around deletions
@@ -181,16 +186,13 @@ public class MergeState {
 
       final int docBase = totalDocs;
       docMaps[i] =
-          new DocMap() {
-            @Override
-            public int get(int docID) {
-              if (liveDocs == null) {
-                return docBase + docID;
-              } else if (liveDocs.get(docID)) {
-                return docBase + (int) delDocMap.get(docID);
-              } else {
-                return -1;
-              }
+          docID -> {
+            if (liveDocs == null) {
+              return docBase + docID;
+            } else if (liveDocs.get(docID)) {
+              return docBase + (int) delDocMap.get(docID);
+            } else {
+              return -1;
             }
           };
       totalDocs += reader.numDocs();
@@ -220,35 +222,21 @@ public class MergeState {
         infoStream.message(
             "SM",
             String.format(
-                Locale.ROOT, "%.2f msec to build merge sorted DocMaps", (t1 - t0) / 1000000.0));
+                Locale.ROOT,
+                "%.2f msec to build merge sorted DocMaps",
+                (t1 - t0) / (double) TimeUnit.MILLISECONDS.toNanos(1)));
       }
       return result;
     }
   }
 
-  private List<CodecReader> maybeSortReaders(
-      List<CodecReader> originalReaders, SegmentInfo segmentInfo) throws IOException {
-
-    // Default to identity:
-    for (int i = 0; i < originalReaders.size(); i++) {
-      leafDocMaps[i] =
-          new DocMap() {
-            @Override
-            public int get(int docID) {
-              return docID;
-            }
-          };
-    }
-
+  private static void verifyIndexSort(List<CodecReader> readers, SegmentInfo segmentInfo) {
     Sort indexSort = segmentInfo.getIndexSort();
     if (indexSort == null) {
-      return originalReaders;
+      return;
     }
-
-    List<CodecReader> readers = new ArrayList<>(originalReaders.size());
-
-    for (CodecReader leaf : originalReaders) {
-      Sort segmentSort = leaf.getMetaData().getSort();
+    for (CodecReader leaf : readers) {
+      Sort segmentSort = leaf.getMetaData().sort();
       if (segmentSort == null || isCongruentSort(indexSort, segmentSort) == false) {
         throw new IllegalArgumentException(
             "index sort mismatch: merged segment has sort="
@@ -256,20 +244,14 @@ public class MergeState {
                 + " but to-be-merged segment has sort="
                 + (segmentSort == null ? "null" : segmentSort));
       }
-      readers.add(leaf);
     }
-
-    return readers;
   }
 
   /** A map of doc IDs. */
-  public abstract static class DocMap {
-    /** Sole constructor. (For invocation by subclass constructors, typically implicit.) */
-    // Explicitly declared so that we have non-empty javadoc
-    protected DocMap() {}
-
+  @FunctionalInterface
+  public interface DocMap {
     /** Return the mapped docID or -1 if the given doc is not mapped. */
-    public abstract int get(int docID);
+    int get(int docID);
   }
 
   static PackedLongValues removeDeletes(final int maxDoc, final Bits liveDocs) {
@@ -283,5 +265,41 @@ public class MergeState {
       }
     }
     return docMapBuilder.build();
+  }
+
+  /** Create a new merge instance. */
+  public MergeState(
+      DocMap[] docMaps,
+      SegmentInfo segmentInfo,
+      FieldInfos mergeFieldInfos,
+      StoredFieldsReader[] storedFieldsReaders,
+      TermVectorsReader[] termVectorsReaders,
+      NormsProducer[] normsProducers,
+      DocValuesProducer[] docValuesProducers,
+      FieldInfos[] fieldInfos,
+      Bits[] liveDocs,
+      FieldsProducer[] fieldsProducers,
+      PointsReader[] pointsReaders,
+      KnnVectorsReader[] knnVectorsReaders,
+      int[] maxDocs,
+      InfoStream infoStream,
+      Executor intraMergeTaskExecutor,
+      boolean needsIndexSort) {
+    this.docMaps = docMaps;
+    this.segmentInfo = segmentInfo;
+    this.mergeFieldInfos = mergeFieldInfos;
+    this.storedFieldsReaders = storedFieldsReaders;
+    this.termVectorsReaders = termVectorsReaders;
+    this.normsProducers = normsProducers;
+    this.docValuesProducers = docValuesProducers;
+    this.fieldInfos = fieldInfos;
+    this.liveDocs = liveDocs;
+    this.fieldsProducers = fieldsProducers;
+    this.pointsReaders = pointsReaders;
+    this.knnVectorsReaders = knnVectorsReaders;
+    this.maxDocs = maxDocs;
+    this.infoStream = infoStream;
+    this.intraMergeTaskExecutor = intraMergeTaskExecutor;
+    this.needsIndexSort = needsIndexSort;
   }
 }

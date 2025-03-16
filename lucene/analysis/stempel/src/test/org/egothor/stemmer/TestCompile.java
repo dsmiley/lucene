@@ -65,7 +65,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Locale;
 import java.util.StringTokenizer;
-import org.apache.lucene.util.LuceneTestCase;
+import org.apache.lucene.tests.util.LuceneTestCase;
 
 public class TestCompile extends LuceneTestCase {
 
@@ -150,7 +150,9 @@ public class TestCompile extends LuceneTestCase {
           Diff.apply(stm, cmd);
           assertEquals(stem.toLowerCase(Locale.ROOT), stm.toString().toLowerCase(Locale.ROOT));
         }
-      } catch (java.util.NoSuchElementException x) {
+      } catch (
+          @SuppressWarnings("unused")
+          java.util.NoSuchElementException x) {
         // no base token (stem) on a line
       }
     }

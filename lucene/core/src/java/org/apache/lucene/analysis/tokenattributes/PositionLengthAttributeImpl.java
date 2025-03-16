@@ -20,8 +20,7 @@ import org.apache.lucene.util.AttributeImpl;
 import org.apache.lucene.util.AttributeReflector;
 
 /** Default implementation of {@link PositionLengthAttribute}. */
-public class PositionLengthAttributeImpl extends AttributeImpl
-    implements PositionLengthAttribute, Cloneable {
+public class PositionLengthAttributeImpl extends AttributeImpl implements PositionLengthAttribute {
   private int positionLength = 1;
 
   /** Initializes this attribute with position length of 1. */
@@ -52,8 +51,7 @@ public class PositionLengthAttributeImpl extends AttributeImpl
       return true;
     }
 
-    if (other instanceof PositionLengthAttributeImpl) {
-      PositionLengthAttributeImpl _other = (PositionLengthAttributeImpl) other;
+    if (other instanceof PositionLengthAttributeImpl _other) {
       return positionLength == _other.positionLength;
     }
 

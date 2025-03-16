@@ -19,8 +19,6 @@ package org.apache.lucene.queryparser.classic;
 import java.io.IOException;
 import java.util.Objects;
 import org.apache.lucene.analysis.Analyzer;
-import org.apache.lucene.analysis.BaseTokenStreamTestCase;
-import org.apache.lucene.analysis.MockTokenizer;
 import org.apache.lucene.analysis.TokenFilter;
 import org.apache.lucene.analysis.TokenStream;
 import org.apache.lucene.analysis.Tokenizer;
@@ -30,6 +28,8 @@ import org.apache.lucene.analysis.tokenattributes.PositionIncrementAttribute;
 import org.apache.lucene.analysis.tokenattributes.TypeAttribute;
 import org.apache.lucene.search.Query;
 import org.apache.lucene.search.QueryVisitor;
+import org.apache.lucene.tests.analysis.BaseTokenStreamTestCase;
+import org.apache.lucene.tests.analysis.MockTokenizer;
 
 /**
  * Test QueryParser's ability to deal with Analyzers that return more than one token per position or
@@ -37,7 +37,7 @@ import org.apache.lucene.search.QueryVisitor;
  */
 public class TestMultiAnalyzer extends BaseTokenStreamTestCase {
 
-  private static int multiToken = 0;
+  private int multiToken = 0;
 
   public void testMultiAnalyzer() throws ParseException {
 
@@ -124,7 +124,7 @@ public class TestMultiAnalyzer extends BaseTokenStreamTestCase {
    * Expands "multi" to "multi" and "multi2", both at the same position, and expands "triplemulti"
    * to "triplemulti", "multi3", and "multi2".
    */
-  private static class MultiAnalyzer extends Analyzer {
+  private class MultiAnalyzer extends Analyzer {
 
     @Override
     public TokenStreamComponents createComponents(String fieldName) {
@@ -133,7 +133,7 @@ public class TestMultiAnalyzer extends BaseTokenStreamTestCase {
     }
   }
 
-  private static final class TestFilter extends TokenFilter {
+  private final class TestFilter extends TokenFilter {
 
     private String prevType;
     private int prevStartOffset;
@@ -153,7 +153,7 @@ public class TestMultiAnalyzer extends BaseTokenStreamTestCase {
     }
 
     @Override
-    public final boolean incrementToken() throws java.io.IOException {
+    public boolean incrementToken() throws java.io.IOException {
       if (multiToken > 0) {
         termAtt.setEmpty().append("multi" + (multiToken + 1));
         offsetAtt.setOffset(prevStartOffset, prevEndOffset);
@@ -216,7 +216,7 @@ public class TestMultiAnalyzer extends BaseTokenStreamTestCase {
     }
 
     @Override
-    public final boolean incrementToken() throws java.io.IOException {
+    public boolean incrementToken() throws java.io.IOException {
       while (input.incrementToken()) {
         if (termAtt.toString().equals("the")) {
           // stopword, do nothing
@@ -243,6 +243,7 @@ public class TestMultiAnalyzer extends BaseTokenStreamTestCase {
     public Query getSuperFieldQuery(String f, String t, boolean quoted) throws ParseException {
       return super.getFieldQuery(f, t, quoted);
     }
+
     /** wrap super's version */
     @Override
     protected Query getFieldQuery(String f, String t, boolean quoted) throws ParseException {

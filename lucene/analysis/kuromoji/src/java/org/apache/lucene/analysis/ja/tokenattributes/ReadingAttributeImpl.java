@@ -17,12 +17,12 @@
 package org.apache.lucene.analysis.ja.tokenattributes;
 
 import org.apache.lucene.analysis.ja.Token;
-import org.apache.lucene.analysis.ja.util.ToStringUtil;
+import org.apache.lucene.analysis.ja.dict.ToStringUtil;
 import org.apache.lucene.util.AttributeImpl;
 import org.apache.lucene.util.AttributeReflector;
 
 /** Attribute for Kuromoji reading data */
-public class ReadingAttributeImpl extends AttributeImpl implements ReadingAttribute, Cloneable {
+public class ReadingAttributeImpl extends AttributeImpl implements ReadingAttribute {
   private Token token;
 
   @Override

@@ -31,6 +31,8 @@ import java.lang.invoke.MethodHandles;
 import java.util.Arrays;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import java.util.stream.Stream;
 import javax.swing.BorderFactory;
 import javax.swing.BoxLayout;
@@ -42,7 +44,6 @@ import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JTextField;
 import javax.swing.SwingWorker;
-import org.apache.logging.log4j.Logger;
 import org.apache.lucene.luke.app.IndexHandler;
 import org.apache.lucene.luke.app.IndexObserver;
 import org.apache.lucene.luke.app.LukeState;
@@ -65,6 +66,7 @@ public final class ExportTermsDialogFactory implements DialogOpener.DialogFactor
 
   private static final Logger log = LoggerFactory.getLogger(MethodHandles.lookup().lookupClass());
 
+  @SuppressWarnings("NonFinalStaticField")
   private static ExportTermsDialogFactory instance;
 
   private final IndexToolsFactory indexToolsFactory = new IndexToolsFactory();
@@ -198,7 +200,7 @@ public final class ExportTermsDialogFactory implements DialogOpener.DialogFactor
     execButtons.add(exportBtn);
     JButton closeBtn = new JButton(MessageUtils.getLocalizedMessage("button.close"));
     closeBtn.setMargin(new Insets(3, 0, 3, 0));
-    closeBtn.addActionListener(e -> dialog.dispose());
+    closeBtn.addActionListener(_ -> dialog.dispose());
     execButtons.add(closeBtn);
     return execButtons;
   }
@@ -249,11 +251,11 @@ public final class ExportTermsDialogFactory implements DialogOpener.DialogFactor
               try {
                 filename = toolsModel.exportTerms(directory, field, selectedDelimiter);
               } catch (LukeException e) {
-                log.error("Error while exporting terms from field {}", field, e);
+                log.log(Level.SEVERE, "Error while exporting terms from field " + field, e);
                 statusLbl.setText(
                     MessageUtils.getLocalizedMessage("export.terms.label.error", e.getMessage()));
               } catch (Exception e) {
-                log.error("Error while exporting terms from field {}", field, e);
+                log.log(Level.SEVERE, "Error while exporting terms from field " + field, e);
                 statusLbl.setText(MessageUtils.getLocalizedMessage("message.error.unknown"));
                 throw e;
               } finally {

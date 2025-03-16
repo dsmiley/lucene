@@ -36,11 +36,10 @@ public class TokenGroup {
   private int matchEndOffset;
 
   private OffsetAttribute offsetAtt;
-  private CharTermAttribute termAtt;
 
   public TokenGroup(TokenStream tokenStream) {
     offsetAtt = tokenStream.addAttribute(OffsetAttribute.class);
-    termAtt = tokenStream.addAttribute(CharTermAttribute.class);
+    tokenStream.addAttribute(CharTermAttribute.class);
   }
 
   void addToken(float score) {
@@ -104,12 +103,16 @@ public class TokenGroup {
     return matchEndOffset;
   }
 
-  /** @return the number of tokens in this group */
+  /**
+   * @return the number of tokens in this group
+   */
   public int getNumTokens() {
     return numTokens;
   }
 
-  /** @return all tokens' scores summed up */
+  /**
+   * @return all tokens' scores summed up
+   */
   public float getTotalScore() {
     return tot;
   }

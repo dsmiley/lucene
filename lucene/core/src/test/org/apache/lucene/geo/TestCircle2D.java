@@ -18,7 +18,9 @@
 package org.apache.lucene.geo;
 
 import org.apache.lucene.index.PointValues;
-import org.apache.lucene.util.LuceneTestCase;
+import org.apache.lucene.tests.geo.GeoTestUtil;
+import org.apache.lucene.tests.geo.ShapeTestUtil;
+import org.apache.lucene.tests.util.LuceneTestCase;
 
 public class TestCircle2D extends LuceneTestCase {
 
@@ -178,5 +180,29 @@ public class TestCircle2D extends LuceneTestCase {
             circle2D.withinTriangle(ax, ay, true, bx, by, true, cx, cy, true));
       }
     }
+  }
+
+  public void testLineIntersects() {
+    Component2D circle2D;
+    if (random().nextBoolean()) {
+      Circle circle = new Circle(0, 0, 35000);
+      circle2D = LatLonGeometry.create(circle);
+    } else {
+      XYCircle xyCircle = new XYCircle(0, 0, 0.3f);
+      circle2D = XYGeometry.create(xyCircle);
+    }
+
+    double ax = -0.25;
+    double ay = 0.25;
+    double bx = 0.25;
+    double by = 0.25;
+    double cx = 0.2;
+    double cy = 0.25;
+    // Test A->B, circle touches center of line, line is less than 1 unit long
+    assertTrue(circle2D.intersectsLine(ax, ay, bx, by));
+    // Test B->C, circle doesn't touch line itself, but touches extended line at t > 1
+    assertFalse(circle2D.intersectsLine(bx, by, cx, cy));
+    // Test C->B, circle doesn't touch line itself, but touches extended line at t < 0
+    assertFalse(circle2D.intersectsLine(cx, cy, bx, by));
   }
 }

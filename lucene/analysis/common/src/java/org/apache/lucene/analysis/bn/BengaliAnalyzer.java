@@ -18,16 +18,19 @@ package org.apache.lucene.analysis.bn;
 
 import java.io.IOException;
 import java.io.Reader;
+import java.io.UncheckedIOException;
 import org.apache.lucene.analysis.CharArraySet;
 import org.apache.lucene.analysis.LowerCaseFilter;
 import org.apache.lucene.analysis.StopFilter;
 import org.apache.lucene.analysis.StopwordAnalyzerBase;
 import org.apache.lucene.analysis.TokenStream;
 import org.apache.lucene.analysis.Tokenizer;
+import org.apache.lucene.analysis.WordlistLoader;
 import org.apache.lucene.analysis.core.DecimalDigitFilter;
 import org.apache.lucene.analysis.in.IndicNormalizationFilter;
 import org.apache.lucene.analysis.miscellaneous.SetKeywordMarkerFilter;
 import org.apache.lucene.analysis.standard.StandardTokenizer;
+import org.apache.lucene.util.IOUtils;
 
 /**
  * Analyzer for Bengali.
@@ -66,9 +69,13 @@ public final class BengaliAnalyzer extends StopwordAnalyzerBase {
     static {
       try {
         DEFAULT_STOP_SET =
-            loadStopwordSet(false, BengaliAnalyzer.class, DEFAULT_STOPWORD_FILE, STOPWORDS_COMMENT);
+            WordlistLoader.getWordSet(
+                IOUtils.requireResourceNonNull(
+                    BengaliAnalyzer.class.getResourceAsStream(DEFAULT_STOPWORD_FILE),
+                    DEFAULT_STOPWORD_FILE),
+                STOPWORDS_COMMENT);
       } catch (IOException ex) {
-        throw new RuntimeException("Unable to load default stopword set");
+        throw new UncheckedIOException("Unable to load default stopword set", ex);
       }
     }
   }

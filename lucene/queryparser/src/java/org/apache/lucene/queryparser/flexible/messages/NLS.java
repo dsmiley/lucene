@@ -20,11 +20,11 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 import java.text.MessageFormat;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.Locale;
 import java.util.Map;
 import java.util.MissingResourceException;
 import java.util.ResourceBundle;
+import org.apache.lucene.util.CollectionUtil;
 
 /**
  * MessageBundles classes extend this class, to implement a bundle.
@@ -41,7 +41,7 @@ import java.util.ResourceBundle;
  */
 public class NLS {
 
-  private static Map<String, Class<? extends NLS>> bundles = new HashMap<>(0);
+  private static final Map<String, Class<? extends NLS>> bundles = new HashMap<>(0);
 
   protected NLS() {
     // Do not instantiate
@@ -83,8 +83,10 @@ public class NLS {
   protected static void initializeMessages(String bundleName, Class<? extends NLS> clazz) {
     try {
       load(clazz);
-      if (!bundles.containsKey(bundleName)) bundles.put(bundleName, clazz);
-    } catch (Throwable e) {
+      bundles.putIfAbsent(bundleName, clazz);
+    } catch (
+        @SuppressWarnings("unused")
+        Throwable e) {
       // ignore all errors and exceptions
       // because this function is supposed to be called at class load time.
     }
@@ -94,14 +96,15 @@ public class NLS {
 
     // slow resource checking
     // need to loop thru all registered resource bundles
-    for (Iterator<String> it = bundles.keySet().iterator(); it.hasNext(); ) {
-      Class<? extends NLS> clazz = bundles.get(it.next());
+    for (Class<? extends NLS> clazz : bundles.values()) {
       ResourceBundle resourceBundle = ResourceBundle.getBundle(clazz.getName(), locale);
       if (resourceBundle != null) {
         try {
           Object obj = resourceBundle.getObject(messageKey);
           if (obj != null) return obj;
-        } catch (MissingResourceException e) {
+        } catch (
+            @SuppressWarnings("unused")
+            MissingResourceException e) {
           // just continue it might be on the next resource bundle
         }
       }
@@ -115,10 +118,10 @@ public class NLS {
 
     // build a map of field names to Field objects
     final int len = fieldArray.length;
-    Map<String, Field> fields = new HashMap<>(len * 2);
-    for (int i = 0; i < len; i++) {
-      fields.put(fieldArray[i].getName(), fieldArray[i]);
-      loadfieldValue(fieldArray[i], clazz);
+    Map<String, Field> fields = CollectionUtil.newHashMap(len);
+    for (Field field : fieldArray) {
+      fields.put(field.getName(), field);
+      loadfieldValue(field, clazz);
     }
   }
 
@@ -131,27 +134,30 @@ public class NLS {
     try {
       field.set(null, field.getName());
       validateMessage(field.getName(), clazz);
-    } catch (IllegalArgumentException | IllegalAccessException e) {
+    } catch (@SuppressWarnings("unused") IllegalArgumentException | IllegalAccessException e) {
       // should not happen
     }
   }
 
-  /** @param key - Message Key */
+  /**
+   * @param key - Message Key
+   */
   private static void validateMessage(String key, Class<? extends NLS> clazz) {
     // Test if the message is present in the resource bundle
     try {
       ResourceBundle resourceBundle =
           ResourceBundle.getBundle(clazz.getName(), Locale.getDefault());
       if (resourceBundle != null) {
-        Object obj = resourceBundle.getObject(key);
-        // if (obj == null)
-        //  System.err.println("WARN: Message with key:" + key + " and locale: "
-        //      + Locale.getDefault() + " not found.");
+        resourceBundle.getObject(key);
       }
-    } catch (MissingResourceException e) {
+    } catch (
+        @SuppressWarnings("unused")
+        MissingResourceException e) {
       // System.err.println("WARN: Message with key:" + key + " and locale: "
       //    + Locale.getDefault() + " not found.");
-    } catch (Throwable e) {
+    } catch (
+        @SuppressWarnings("unused")
+        Throwable e) {
       // ignore all other errors and exceptions
       // since this code is just a test to see if the message is present on the
       // system

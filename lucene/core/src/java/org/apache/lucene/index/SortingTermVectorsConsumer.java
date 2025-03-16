@@ -38,7 +38,7 @@ final class SortingTermVectorsConsumer extends TermVectorsConsumer {
 
   private static final TermVectorsFormat TEMP_TERM_VECTORS_FORMAT =
       new Lucene90CompressingTermVectorsFormat(
-          "TempTermVectors", "", SortingStoredFieldsConsumer.NO_COMPRESSION, 8 * 1024, 10);
+          "TempTermVectors", "", SortingStoredFieldsConsumer.NO_COMPRESSION, 8 * 1024, 128, 10);
   TrackingTmpOutputDirectoryWrapper tmpDirectory;
 
   SortingTermVectorsConsumer(
@@ -68,14 +68,14 @@ final class SortingTermVectorsConsumer extends TermVectorsConsumer {
       TermVectorsWriter writer =
           codec
               .termVectorsFormat()
-              .vectorsWriter(state.directory, state.segmentInfo, IOContext.DEFAULT);
+              .vectorsWriter(state.directory, state.segmentInfo, state.context);
       try {
         reader.checkIntegrity();
         for (int docID = 0; docID < state.segmentInfo.maxDoc(); docID++) {
           Fields vectors = reader.get(sortMap == null ? docID : sortMap.newToOld(docID));
           writeTermVectors(writer, vectors, state.fieldInfos);
         }
-        writer.finish(state.fieldInfos, state.segmentInfo.maxDoc());
+        writer.finish(state.segmentInfo.maxDoc());
       } finally {
         IOUtils.close(reader, writer);
         IOUtils.deleteFiles(tmpDirectory, tmpDirectory.getTemporaryFiles().values());

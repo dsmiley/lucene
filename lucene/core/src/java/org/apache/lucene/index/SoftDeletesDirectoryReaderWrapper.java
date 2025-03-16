@@ -27,14 +27,14 @@ import java.util.Map;
 import java.util.Objects;
 import org.apache.lucene.document.Field;
 import org.apache.lucene.search.DocIdSetIterator;
-import org.apache.lucene.search.DocValuesFieldExistsQuery;
+import org.apache.lucene.search.FieldExistsQuery;
 import org.apache.lucene.util.Bits;
 import org.apache.lucene.util.FixedBitSet;
 
 /**
- * This reader filters out documents that have a doc values value in the given field and treat these
- * documents as soft deleted. Hard deleted documents will also be filtered out in the life docs of
- * this reader.
+ * This reader filters out documents that have a doc-values value in the given field and treats
+ * these documents as soft-deleted. Hard deleted documents will also be filtered out in the live
+ * docs of this reader.
  *
  * @see IndexWriterConfig#setSoftDeletesField(String)
  * @see IndexWriter#softUpdateDocument(Term, Iterable, Field...)
@@ -43,6 +43,7 @@ import org.apache.lucene.util.FixedBitSet;
 public final class SoftDeletesDirectoryReaderWrapper extends FilterDirectoryReader {
   private final String field;
   private final CacheHelper readerCacheHelper;
+
   /**
    * Creates a new soft deletes wrapper.
    *
@@ -67,7 +68,7 @@ public final class SoftDeletesDirectoryReaderWrapper extends FilterDirectoryRead
   protected DirectoryReader doWrapDirectoryReader(DirectoryReader in) throws IOException {
     Map<CacheKey, LeafReader> readerCache = new HashMap<>();
     for (LeafReader reader : getSequentialSubReaders()) {
-      // we try to reuse the life docs instances here if the reader cache key didn't change
+      // we try to reuse the live docs instances here if the reader cache key didn't change
       if (reader instanceof SoftDeletesFilterLeafReader && reader.getReaderCacheHelper() != null) {
         readerCache.put(
             ((SoftDeletesFilterLeafReader) reader).reader.getReaderCacheHelper().getKey(), reader);
@@ -97,6 +98,7 @@ public final class SoftDeletesDirectoryReaderWrapper extends FilterDirectoryRead
       this.field = field;
     }
 
+    @Override
     protected LeafReader[] wrap(List<? extends LeafReader> readers) {
       List<LeafReader> wrapped = new ArrayList<>(readers.size());
       for (LeafReader reader : readers) {
@@ -126,8 +128,7 @@ public final class SoftDeletesDirectoryReaderWrapper extends FilterDirectoryRead
   }
 
   static LeafReader wrap(LeafReader reader, String field) throws IOException {
-    DocIdSetIterator iterator =
-        DocValuesFieldExistsQuery.getDocValuesDocIdSetIterator(field, reader);
+    DocIdSetIterator iterator = FieldExistsQuery.getDocValuesDocIdSetIterator(field, reader);
     if (iterator == null) {
       return reader;
     }
@@ -140,6 +141,9 @@ public final class SoftDeletesDirectoryReaderWrapper extends FilterDirectoryRead
       bits.set(0, reader.maxDoc());
     }
     int numSoftDeletes = PendingSoftDeletes.applySoftDeletes(iterator, bits);
+    if (numSoftDeletes == 0) {
+      return reader;
+    }
     int numDeletes = reader.numDeletedDocs() + numSoftDeletes;
     int numDocs = reader.maxDoc() - numDeletes;
     assert assertDocCounts(numDocs, numSoftDeletes, reader);
@@ -150,8 +154,7 @@ public final class SoftDeletesDirectoryReaderWrapper extends FilterDirectoryRead
 
   private static boolean assertDocCounts(
       int expectedNumDocs, int numSoftDeletes, LeafReader reader) {
-    if (reader instanceof SegmentReader) {
-      SegmentReader segmentReader = (SegmentReader) reader;
+    if (reader instanceof SegmentReader segmentReader) {
       SegmentCommitInfo segmentInfo = segmentReader.getSegmentInfo();
       if (segmentReader.isNRT == false) {
         int numDocs =
@@ -256,28 +259,6 @@ public final class SoftDeletesDirectoryReaderWrapper extends FilterDirectoryRead
     @Override
     public CacheHelper getReaderCacheHelper() {
       return readerCacheHelper;
-    }
-  }
-
-  private static class DelegatingCacheHelper implements CacheHelper {
-    private final CacheHelper delegate;
-    private final CacheKey cacheKey = new CacheKey();
-
-    public DelegatingCacheHelper(CacheHelper delegate) {
-      this.delegate = delegate;
-    }
-
-    @Override
-    public CacheKey getKey() {
-      return cacheKey;
-    }
-
-    @Override
-    public void addClosedListener(ClosedListener listener) {
-      // here we wrap the listener and call it with our cache key
-      // this is important since this key will be used to cache the reader and otherwise we won't
-      // free caches etc.
-      delegate.addClosedListener(unused -> listener.onClose(cacheKey));
     }
   }
 }

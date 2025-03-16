@@ -20,12 +20,14 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
-import org.apache.lucene.analysis.MockAnalyzer;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.store.AlreadyClosedException;
 import org.apache.lucene.store.Directory;
-import org.apache.lucene.util.LuceneTestCase;
-import org.apache.lucene.util.TestUtil;
+import org.apache.lucene.tests.analysis.MockAnalyzer;
+import org.apache.lucene.tests.index.AssertingLeafReader;
+import org.apache.lucene.tests.index.RandomIndexWriter;
+import org.apache.lucene.tests.util.LuceneTestCase;
+import org.apache.lucene.tests.util.TestUtil;
 
 /** */
 public class TestIndexReaderClose extends LuceneTestCase {
@@ -177,20 +179,20 @@ public class TestIndexReaderClose extends LuceneTestCase {
     w.close();
 
     // The reader is open, everything should work
-    r.getReaderCacheHelper().addClosedListener(key -> {});
-    r.leaves().get(0).reader().getReaderCacheHelper().addClosedListener(key -> {});
-    r.leaves().get(0).reader().getCoreCacheHelper().addClosedListener(key -> {});
+    r.getReaderCacheHelper().addClosedListener(_ -> {});
+    r.leaves().get(0).reader().getReaderCacheHelper().addClosedListener(_ -> {});
+    r.leaves().get(0).reader().getCoreCacheHelper().addClosedListener(_ -> {});
 
     // But now we close
     r.close();
     expectThrows(
-        AlreadyClosedException.class, () -> r.getReaderCacheHelper().addClosedListener(key -> {}));
+        AlreadyClosedException.class, () -> r.getReaderCacheHelper().addClosedListener(_ -> {}));
     expectThrows(
         AlreadyClosedException.class,
-        () -> r.leaves().get(0).reader().getReaderCacheHelper().addClosedListener(key -> {}));
+        () -> r.leaves().get(0).reader().getReaderCacheHelper().addClosedListener(_ -> {}));
     expectThrows(
         AlreadyClosedException.class,
-        () -> r.leaves().get(0).reader().getCoreCacheHelper().addClosedListener(key -> {}));
+        () -> r.leaves().get(0).reader().getCoreCacheHelper().addClosedListener(_ -> {}));
 
     dir.close();
   }

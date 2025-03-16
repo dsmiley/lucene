@@ -16,15 +16,19 @@
  */
 package org.apache.lucene.spatial3d.geom;
 
+import static org.apache.lucene.spatial3d.tests.RandomGeo3dShapeGenerator.orderPoints;
+import static org.apache.lucene.spatial3d.tests.RandomGeo3dShapeGenerator.randomGeoPoint;
+import static org.apache.lucene.spatial3d.tests.RandomGeo3dShapeGenerator.randomPlanetModel;
+
 import com.carrotsearch.randomizedtesting.generators.BiasedNumbers;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import org.apache.lucene.tests.util.LuceneTestCase;
 import org.junit.Test;
 
 /** Random test for polygons. */
-public class TestRandomGeoPolygon extends RandomGeo3dShapeGenerator {
-
+public class TestRandomGeoPolygon extends LuceneTestCase {
   @Test
   public void testRandomLUCENE8157() {
     final PlanetModel planetModel = randomPlanetModel();
@@ -45,7 +49,9 @@ public class TestRandomGeoPolygon extends RandomGeo3dShapeGenerator {
     try {
       GeoPolygon polygon = GeoPolygonFactory.makeGeoPolygon(planetModel, points);
       assertTrue(polygon != null);
-    } catch (Exception e) {
+    } catch (
+        @SuppressWarnings("unused")
+        Exception e) {
       fail(points.toString());
     }
   }
@@ -61,8 +67,10 @@ public class TestRandomGeoPolygon extends RandomGeo3dShapeGenerator {
     points.add(point3);
     points.add(point4);
     try {
-      GeoPolygon polygon = GeoPolygonFactory.makeGeoPolygon(PlanetModel.SPHERE, points);
-    } catch (Exception e) {
+      GeoPolygonFactory.makeGeoPolygon(PlanetModel.SPHERE, points);
+    } catch (
+        @SuppressWarnings("unused")
+        Exception e) {
       fail(points.toString());
     }
   }
@@ -97,14 +105,12 @@ public class TestRandomGeoPolygon extends RandomGeo3dShapeGenerator {
 
   /** Test comparing different polygon (Big) technologies using random biased doubles. */
   @Test
-  // @AwaitsFix(bugUrl="https://issues.apache.org/jira/browse/LUCENE-8281")
   public void testCompareBigPolygons() {
     testComparePolygons(Math.PI);
   }
 
   /** Test comparing different polygon (Small) technologies using random biased doubles. */
   @Test
-  // @AwaitsFix(bugUrl="https://issues.apache.org/jira/browse/LUCENE-8281")
   public void testCompareSmallPolygons() {
     testComparePolygons(1e-4 * Math.PI);
   }
@@ -287,19 +293,5 @@ public class TestRandomGeoPolygon extends RandomGeo3dShapeGenerator {
       }
     }
     return false;
-  }
-
-  private GeoPoint getCenterOfMass(final PlanetModel planetModel, final List<GeoPoint> points) {
-    double x = 0;
-    double y = 0;
-    double z = 0;
-    // get center of mass
-    for (final GeoPoint point : points) {
-      x += point.x;
-      y += point.y;
-      z += point.z;
-    }
-    // Normalization is not needed because createSurfacePoint does the scaling anyway.
-    return planetModel.createSurfacePoint(x, y, z);
   }
 }

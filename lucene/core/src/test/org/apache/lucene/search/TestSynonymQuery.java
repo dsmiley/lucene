@@ -32,13 +32,16 @@ import org.apache.lucene.index.ImpactsEnum;
 import org.apache.lucene.index.ImpactsSource;
 import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.index.IndexWriter;
-import org.apache.lucene.index.RandomIndexWriter;
+import org.apache.lucene.index.MultiReader;
 import org.apache.lucene.index.Term;
 import org.apache.lucene.search.BooleanClause.Occur;
 import org.apache.lucene.store.Directory;
+import org.apache.lucene.tests.index.RandomIndexWriter;
+import org.apache.lucene.tests.search.CheckHits;
+import org.apache.lucene.tests.search.QueryUtils;
+import org.apache.lucene.tests.util.LuceneTestCase;
+import org.apache.lucene.tests.util.TestUtil;
 import org.apache.lucene.util.BytesRef;
-import org.apache.lucene.util.LuceneTestCase;
-import org.apache.lucene.util.TestUtil;
 
 public class TestSynonymQuery extends LuceneTestCase {
 
@@ -70,6 +73,33 @@ public class TestSynonymQuery extends LuceneTestCase {
             .addTerm(new Term("field", "c"), 0.2f)
             .addTerm(new Term("field", "d"))
             .build());
+
+    QueryUtils.checkUnequal(
+        new SynonymQuery.Builder("field").addTerm(new Term("field", "a"), 0.4f).build(),
+        new SynonymQuery.Builder("field").addTerm(new Term("field", "b"), 0.4f).build());
+
+    QueryUtils.checkUnequal(
+        new SynonymQuery.Builder("field").addTerm(new Term("field", "a"), 0.2f).build(),
+        new SynonymQuery.Builder("field").addTerm(new Term("field", "a"), 0.4f).build());
+
+    QueryUtils.checkUnequal(
+        new SynonymQuery.Builder("field1").addTerm(new Term("field1", "b"), 0.4f).build(),
+        new SynonymQuery.Builder("field2").addTerm(new Term("field2", "b"), 0.4f).build());
+  }
+
+  public void testHashCode() {
+    Query q0 = new SynonymQuery.Builder("field1").addTerm(new Term("field1", "a"), 0.4f).build();
+    Query q1 = new SynonymQuery.Builder("field1").addTerm(new Term("field1", "a"), 0.4f).build();
+    Query q2 = new SynonymQuery.Builder("field2").addTerm(new Term("field2", "a"), 0.4f).build();
+
+    assertEquals(q0.hashCode(), q1.hashCode());
+    assertNotEquals(q0.hashCode(), q2.hashCode());
+  }
+
+  public void testGetField() {
+    SynonymQuery query =
+        new SynonymQuery.Builder("field1").addTerm(new Term("field1", "a")).build();
+    assertEquals("field1", query.getField());
   }
 
   public void testBogusParams() {
@@ -124,6 +154,12 @@ public class TestSynonymQuery extends LuceneTestCase {
         () -> {
           new SynonymQuery.Builder("field1").addTerm(new Term("field1", "a"), -0f);
         });
+
+    expectThrows(
+        NullPointerException.class,
+        () -> new SynonymQuery.Builder(null).addTerm(new Term("field1", "a"), -0f));
+
+    expectThrows(NullPointerException.class, () -> new SynonymQuery.Builder(null).build());
   }
 
   public void testToString() {
@@ -138,7 +174,7 @@ public class TestSynonymQuery extends LuceneTestCase {
   }
 
   public void testScores() throws IOException {
-    doTestScores(2);
+    doTestScores(1);
     doTestScores(Integer.MAX_VALUE);
   }
 
@@ -164,15 +200,12 @@ public class TestSynonymQuery extends LuceneTestCase {
             .addTerm(new Term("f", "b"), boost == 0 ? 1f : boost)
             .build();
 
-    TopScoreDocCollector collector =
-        TopScoreDocCollector.create(
-            Math.min(reader.numDocs(), totalHitsThreshold), null, totalHitsThreshold);
-    searcher.search(query, collector);
-    TopDocs topDocs = collector.topDocs();
-    if (topDocs.totalHits.value < totalHitsThreshold) {
+    TopScoreDocCollectorManager collectorManager =
+        new TopScoreDocCollectorManager(
+            Math.min(reader.numDocs(), totalHitsThreshold), totalHitsThreshold);
+    TopDocs topDocs = searcher.search(query, collectorManager);
+    if (topDocs.totalHits.value() < totalHitsThreshold) {
       assertEquals(new TotalHits(11, TotalHits.Relation.EQUAL_TO), topDocs.totalHits);
-    } else {
-      assertEquals(TotalHits.Relation.GREATER_THAN_OR_EQUAL_TO, topDocs.totalHits.relation);
     }
     // All docs must have the same score
     for (int i = 0; i < topDocs.scoreDocs.length; ++i) {
@@ -185,7 +218,7 @@ public class TestSynonymQuery extends LuceneTestCase {
   }
 
   public void testBoosts() throws IOException {
-    doTestBoosts(2);
+    doTestBoosts(1);
     doTestBoosts(Integer.MAX_VALUE);
   }
 
@@ -224,16 +257,15 @@ public class TestSynonymQuery extends LuceneTestCase {
             .addTerm(new Term("f", "c"))
             .build();
 
-    TopScoreDocCollector collector =
-        TopScoreDocCollector.create(
-            Math.min(reader.numDocs(), totalHitsThreshold), null, totalHitsThreshold);
-    searcher.search(query, collector);
-    TopDocs topDocs = collector.topDocs();
-    if (topDocs.totalHits.value < totalHitsThreshold) {
-      assertEquals(TotalHits.Relation.EQUAL_TO, topDocs.totalHits.relation);
-      assertEquals(22, topDocs.totalHits.value);
+    TopScoreDocCollectorManager collectorManager =
+        new TopScoreDocCollectorManager(
+            Math.min(reader.numDocs(), totalHitsThreshold), totalHitsThreshold);
+    TopDocs topDocs = searcher.search(query, collectorManager);
+    if (topDocs.totalHits.value() < totalHitsThreshold) {
+      assertEquals(TotalHits.Relation.EQUAL_TO, topDocs.totalHits.relation());
+      assertEquals(22, topDocs.totalHits.value());
     } else {
-      assertEquals(TotalHits.Relation.GREATER_THAN_OR_EQUAL_TO, topDocs.totalHits.relation);
+      assertEquals(TotalHits.Relation.GREATER_THAN_OR_EQUAL_TO, topDocs.totalHits.relation());
     }
     // All docs must have the same score
     for (int i = 0; i < topDocs.scoreDocs.length; ++i) {
@@ -442,13 +474,14 @@ public class TestSynonymQuery extends LuceneTestCase {
               .addTerm(new Term("foo", Integer.toString(term2)), boost2)
               .build();
 
-      TopScoreDocCollector collector1 =
-          TopScoreDocCollector.create(10, null, Integer.MAX_VALUE); // COMPLETE
-      TopScoreDocCollector collector2 = TopScoreDocCollector.create(10, null, 1); // TOP_SCORES
+      TopScoreDocCollectorManager completeManager =
+          new TopScoreDocCollectorManager(10, Integer.MAX_VALUE); // COMPLETE
+      TopScoreDocCollectorManager topScoresManager =
+          new TopScoreDocCollectorManager(10, 1); // TOP_SCORES
 
-      searcher.search(query, collector1);
-      searcher.search(query, collector2);
-      CheckHits.checkEqual(query, collector1.topDocs().scoreDocs, collector2.topDocs().scoreDocs);
+      TopDocs complete = searcher.search(query, completeManager);
+      TopDocs topScores = searcher.search(query, topScoresManager);
+      CheckHits.checkEqual(query, complete.scoreDocs, topScores.scoreDocs);
 
       int filterTerm = random().nextInt(15);
       Query filteredQuery =
@@ -457,13 +490,38 @@ public class TestSynonymQuery extends LuceneTestCase {
               .add(new TermQuery(new Term("foo", Integer.toString(filterTerm))), Occur.FILTER)
               .build();
 
-      collector1 = TopScoreDocCollector.create(10, null, Integer.MAX_VALUE); // COMPLETE
-      collector2 = TopScoreDocCollector.create(10, null, 1); // TOP_SCORES
-      searcher.search(filteredQuery, collector1);
-      searcher.search(filteredQuery, collector2);
-      CheckHits.checkEqual(query, collector1.topDocs().scoreDocs, collector2.topDocs().scoreDocs);
+      completeManager = new TopScoreDocCollectorManager(10, Integer.MAX_VALUE); // COMPLETE
+      topScoresManager = new TopScoreDocCollectorManager(10, 1); // TOP_SCORES
+
+      complete = searcher.search(filteredQuery, completeManager);
+      topScores = searcher.search(filteredQuery, topScoresManager);
+      CheckHits.checkEqual(query, complete.scoreDocs, topScores.scoreDocs);
     }
     reader.close();
     dir.close();
+  }
+
+  public void testRewrite() throws IOException {
+    IndexSearcher searcher = new IndexSearcher(new MultiReader());
+
+    // zero length SynonymQuery is rewritten
+    SynonymQuery q = new SynonymQuery.Builder("f").build();
+    assertTrue(q.getTerms().isEmpty());
+    assertEquals(searcher.rewrite(q), new MatchNoDocsQuery());
+
+    // non-boosted single term SynonymQuery is rewritten
+    q = new SynonymQuery.Builder("f").addTerm(new Term("f"), 1f).build();
+    assertEquals(q.getTerms().size(), 1);
+    assertEquals(searcher.rewrite(q), new TermQuery(new Term("f")));
+
+    // boosted single term SynonymQuery is not rewritten
+    q = new SynonymQuery.Builder("f").addTerm(new Term("f"), 0.8f).build();
+    assertEquals(q.getTerms().size(), 1);
+    assertEquals(searcher.rewrite(q), q);
+
+    // multiple term SynonymQuery is not rewritten
+    q = new SynonymQuery.Builder("f").addTerm(new Term("f"), 1f).addTerm(new Term("f"), 1f).build();
+    assertEquals(q.getTerms().size(), 2);
+    assertEquals(searcher.rewrite(q), q);
   }
 }

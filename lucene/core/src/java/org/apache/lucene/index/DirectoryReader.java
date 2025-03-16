@@ -21,6 +21,7 @@ import java.io.IOException;
 import java.nio.file.NoSuchFileException;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 import org.apache.lucene.search.SearcherManager; // javadocs
 import org.apache.lucene.store.Directory;
@@ -56,7 +57,24 @@ public abstract class DirectoryReader extends BaseCompositeReader<LeafReader> {
    * @throws IOException if there is a low-level IO error
    */
   public static DirectoryReader open(final Directory directory) throws IOException {
-    return StandardDirectoryReader.open(directory, null);
+    return StandardDirectoryReader.open(directory, null, null);
+  }
+
+  /**
+   * Returns a IndexReader for the index in the given Directory
+   *
+   * @param directory the index directory
+   * @param leafSorter a comparator for sorting leaf readers. Providing leafSorter is useful for
+   *     indices on which it is expected to run many queries with particular sort criteria (e.g. for
+   *     time-based indices this is usually a descending sort on timestamp). In this case {@code
+   *     leafSorter} should sort leaves according to this sort criteria. Providing leafSorter allows
+   *     to speed up this particular type of sort queries by early terminating while iterating
+   *     through segments and segments' documents.
+   * @throws IOException if there is a low-level IO error
+   */
+  public static DirectoryReader open(final Directory directory, Comparator<LeafReader> leafSorter)
+      throws IOException {
+    return StandardDirectoryReader.open(directory, null, leafSorter);
   }
 
   /**
@@ -101,12 +119,12 @@ public abstract class DirectoryReader extends BaseCompositeReader<LeafReader> {
    * @throws IOException if there is a low-level IO error
    */
   public static DirectoryReader open(final IndexCommit commit) throws IOException {
-    return StandardDirectoryReader.open(commit.getDirectory(), commit);
+    return StandardDirectoryReader.open(commit.getDirectory(), commit, null);
   }
 
   /**
    * Expert: returns an IndexReader reading the index on the given {@link IndexCommit}. This method
-   * allows to open indices that were created wih a Lucene version older than N-1 provided that all
+   * allows to open indices that were created with a Lucene version older than N-1 provided that all
    * codecs for this index are available in the classpath and the segment file format used was
    * created with Lucene 7 or newer. Users of this API must be aware that Lucene doesn't guarantee
    * semantic compatibility for indices created with versions older than N-1. All backwards
@@ -114,18 +132,25 @@ public abstract class DirectoryReader extends BaseCompositeReader<LeafReader> {
    *
    * @param commit the commit point to open
    * @param minSupportedMajorVersion the minimum supported major index version
+   * @param leafSorter a comparator for sorting leaf readers. Providing leafSorter is useful for
+   *     indices on which it is expected to run many queries with particular sort criteria (e.g. for
+   *     time-based indices, this is usually a descending sort on timestamp). In this case {@code
+   *     leafSorter} should sort leaves according to this sort criteria. Providing leafSorter allows
+   *     to speed up this particular type of sort queries by early terminating while iterating
+   *     through segments and segments' documents
    * @throws IOException if there is a low-level IO error
    */
-  public static DirectoryReader open(final IndexCommit commit, int minSupportedMajorVersion)
+  public static DirectoryReader open(
+      final IndexCommit commit, int minSupportedMajorVersion, Comparator<LeafReader> leafSorter)
       throws IOException {
-    return StandardDirectoryReader.open(commit.getDirectory(), minSupportedMajorVersion, commit);
+    return StandardDirectoryReader.open(
+        commit.getDirectory(), minSupportedMajorVersion, commit, leafSorter);
   }
 
   /**
    * If the index has changed since the provided reader was opened, open and return a new reader;
    * else, return null. The new reader, if not null, will be the same type of reader as the previous
-   * one, ie an NRT reader will open a new NRT reader, a MultiReader will open a new MultiReader,
-   * etc.
+   * one, ie an NRT reader will open a new NRT reader etc.
    *
    * <p>This method is typically far less costly than opening a fully new <code>DirectoryReader
    * </code> as it shares resources (for example sub-readers) with the provided <code>
@@ -166,7 +191,7 @@ public abstract class DirectoryReader extends BaseCompositeReader<LeafReader> {
    * never returns null).
    *
    * <p>This provides "near real-time" searching, in that changes made during an {@link IndexWriter}
-   * session can be quickly made available for searching without closing the writer nor calling
+   * session can be quickly made available for searching without closing the writer or calling
    * {@link IndexWriter#commit}.
    *
    * <p>It's <i>near</i> real-time because there is no hard guarantee on how quickly you can get a
@@ -255,7 +280,7 @@ public abstract class DirectoryReader extends BaseCompositeReader<LeafReader> {
           // IOException allowed to throw there, in case
           // segments_N is corrupt
           sis = SegmentInfos.readCommit(dir, fileName, 0);
-        } catch (FileNotFoundException | NoSuchFileException fnfe) {
+        } catch (@SuppressWarnings("unused") FileNotFoundException | NoSuchFileException fnfe) {
           // LUCENE-948: on NFS (and maybe others), if
           // you have writers switching back and forth
           // between machines, it's very likely that the
@@ -279,7 +304,8 @@ public abstract class DirectoryReader extends BaseCompositeReader<LeafReader> {
 
   /**
    * Returns <code>true</code> if an index likely exists at the specified directory. Note that if a
-   * corrupt index exists, or if an index in the process of committing
+   * corrupt index exists, or if an index in the process of committing the return value is not
+   * reliable.
    *
    * @param directory the directory to check for an index
    * @return <code>true</code> if an index exists; <code>false</code> otherwise
@@ -317,9 +343,13 @@ public abstract class DirectoryReader extends BaseCompositeReader<LeafReader> {
    *     methods. <b>Please note:</b> This array is <b>not</b> cloned and not protected for
    *     modification outside of this reader. Subclasses of {@code DirectoryReader} should take care
    *     to not allow modification of this internal array, e.g. {@link #doOpenIfChanged()}.
+   * @param leafSorter – a comparator for sorting leaf readers. If not {@code null}, this comparator
+   *     is used for sorting leaf readers.
    */
-  protected DirectoryReader(Directory directory, LeafReader[] segmentReaders) throws IOException {
-    super(segmentReaders);
+  protected DirectoryReader(
+      Directory directory, LeafReader[] segmentReaders, Comparator<LeafReader> leafSorter)
+      throws IOException {
+    super(segmentReaders, leafSorter);
     this.directory = directory;
   }
 

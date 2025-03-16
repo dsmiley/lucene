@@ -19,7 +19,7 @@ package org.apache.lucene.analysis.ko.tokenattributes;
 import org.apache.lucene.analysis.ko.POS.Tag;
 import org.apache.lucene.analysis.ko.POS.Type;
 import org.apache.lucene.analysis.ko.Token;
-import org.apache.lucene.analysis.ko.dict.Dictionary.Morpheme;
+import org.apache.lucene.analysis.ko.dict.KoMorphData;
 import org.apache.lucene.util.AttributeImpl;
 import org.apache.lucene.util.AttributeReflector;
 
@@ -28,8 +28,7 @@ import org.apache.lucene.util.AttributeReflector;
  *
  * @lucene.experimental
  */
-public class PartOfSpeechAttributeImpl extends AttributeImpl
-    implements PartOfSpeechAttribute, Cloneable {
+public class PartOfSpeechAttributeImpl extends AttributeImpl implements PartOfSpeechAttribute {
   private Token token;
 
   @Override
@@ -48,7 +47,7 @@ public class PartOfSpeechAttributeImpl extends AttributeImpl
   }
 
   @Override
-  public Morpheme[] getMorphemes() {
+  public KoMorphData.Morpheme[] getMorphemes() {
     return token == null ? null : token.getMorphemes();
   }
 
@@ -77,21 +76,21 @@ public class PartOfSpeechAttributeImpl extends AttributeImpl
     reflector.reflect(PartOfSpeechAttribute.class, "morphemes", displayMorphemes(getMorphemes()));
   }
 
-  private String displayMorphemes(Morpheme[] morphemes) {
+  private String displayMorphemes(KoMorphData.Morpheme[] morphemes) {
     if (morphemes == null) {
       return null;
     }
     StringBuilder builder = new StringBuilder();
-    for (Morpheme morpheme : morphemes) {
+    for (KoMorphData.Morpheme morpheme : morphemes) {
       if (builder.length() > 0) {
         builder.append("+");
       }
       builder
-          .append(morpheme.surfaceForm)
+          .append(morpheme.surfaceForm())
           .append('/')
-          .append(morpheme.posTag.name())
+          .append(morpheme.posTag().name())
           .append('(')
-          .append(morpheme.posTag.description())
+          .append(morpheme.posTag().description())
           .append(')');
     }
     return builder.toString();

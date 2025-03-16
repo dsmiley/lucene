@@ -40,6 +40,7 @@ class BigramDictionary extends AbstractDictionary {
 
   public static final char WORD_SEGMENT_CHAR = '@';
 
+  @SuppressWarnings("NonFinalStaticField")
   private static BigramDictionary singleInstance;
 
   public static final int PRIME_BIGRAM_LENGTH = 402137;
@@ -53,8 +54,6 @@ class BigramDictionary extends AbstractDictionary {
 
   private int max = 0;
 
-  private int repeat = 0;
-
   // static Logger log = Logger.getLogger(BigramDictionary.class);
 
   public static synchronized BigramDictionary getInstance() {
@@ -67,7 +66,9 @@ class BigramDictionary extends AbstractDictionary {
         try {
           singleInstance.load(dictRoot);
         } catch (IOException ioe) {
-          throw new RuntimeException(ioe);
+          RuntimeException ex = new RuntimeException(ioe);
+          ex.addSuppressed(e);
+          throw ex;
         }
       } catch (ClassNotFoundException e) {
         throw new RuntimeException(e);
@@ -143,7 +144,7 @@ class BigramDictionary extends AbstractDictionary {
    */
   public void loadFromFile(String dctFilePath) throws IOException {
 
-    int i, cnt, length, total = 0;
+    int i, cnt, length;
     // The file only counted 6763 Chinese characters plus 5 reserved slots 3756~3760.
     // The 3756th is used (as a header) to store information.
     int[] buffer = new int[3];
@@ -163,7 +164,6 @@ class BigramDictionary extends AbstractDictionary {
       if (cnt <= 0) {
         continue;
       }
-      total += cnt;
       int j = 0;
       while (j < cnt) {
         dctFile.read(intBuffer);
@@ -182,7 +182,7 @@ class BigramDictionary extends AbstractDictionary {
           if (i != 3755 + GB2312_FIRST_CHAR) {
             tmpword = currentStr + tmpword;
           }
-          char carray[] = tmpword.toCharArray();
+          char[] carray = tmpword.toCharArray();
           long hashId = hash1(carray);
           int index = getAvaliableIndex(hashId, carray);
           if (index != -1) {
@@ -200,7 +200,7 @@ class BigramDictionary extends AbstractDictionary {
     // log.info("load dictionary done! " + dctFilePath + " total:" + total);
   }
 
-  private int getAvaliableIndex(long hashId, char carray[]) {
+  private int getAvaliableIndex(long hashId, char[] carray) {
     int hash1 = (int) (hashId % PRIME_BIGRAM_LENGTH);
     int hash2 = hash2(carray) % PRIME_BIGRAM_LENGTH;
     if (hash1 < 0) hash1 = PRIME_BIGRAM_LENGTH + hash1;
@@ -224,7 +224,7 @@ class BigramDictionary extends AbstractDictionary {
   /*
    * lookup the index into the frequency array.
    */
-  private int getBigramItemIndex(char carray[]) {
+  private int getBigramItemIndex(char[] carray) {
     long hashId = hash1(carray);
     int hash1 = (int) (hashId % PRIME_BIGRAM_LENGTH);
     int hash2 = hash2(carray) % PRIME_BIGRAM_LENGTH;
@@ -232,13 +232,11 @@ class BigramDictionary extends AbstractDictionary {
     if (hash2 < 0) hash2 = PRIME_BIGRAM_LENGTH + hash2;
     int index = hash1;
     int i = 1;
-    repeat++;
     while (bigramHashTable[index] != 0
         && bigramHashTable[index] != hashId
         && i < PRIME_BIGRAM_LENGTH) {
       index = (hash1 + i * hash2) % PRIME_BIGRAM_LENGTH;
       i++;
-      repeat++;
       if (i > max) max = i;
     }
     // System.out.println(i - 1);

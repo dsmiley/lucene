@@ -38,8 +38,8 @@ public class TokenStreamOffsetStrategy extends AnalysisOffsetStrategy {
 
   public TokenStreamOffsetStrategy(UHComponents components, Analyzer indexAnalyzer) {
     super(components, indexAnalyzer);
-    assert components.getPhraseHelper().hasPositionSensitivity() == false;
-    combinedAutomata = convertTermsToMatchers(components.getTerms(), components.getAutomata());
+    assert components.phraseHelper().hasPositionSensitivity() == false;
+    combinedAutomata = convertTermsToMatchers(components.terms(), components.automata());
   }
 
   // TODO this is inefficient; instead build a union automata just for terms part.
@@ -70,7 +70,7 @@ public class TokenStreamOffsetStrategy extends AnalysisOffsetStrategy {
 
     int currentMatch = -1;
 
-    final BytesRef matchDescriptions[];
+    final BytesRef[] matchDescriptions;
 
     TokenStreamOffsetsEnum(TokenStream ts, CharArrayMatcher[] matchers) throws IOException {
       this.stream = ts;

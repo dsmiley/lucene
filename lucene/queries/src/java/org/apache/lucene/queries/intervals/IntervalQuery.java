@@ -29,7 +29,7 @@ import org.apache.lucene.search.MatchesUtils;
 import org.apache.lucene.search.Query;
 import org.apache.lucene.search.QueryVisitor;
 import org.apache.lucene.search.ScoreMode;
-import org.apache.lucene.search.Scorer;
+import org.apache.lucene.search.ScorerSupplier;
 import org.apache.lucene.search.Weight;
 
 /**
@@ -121,7 +121,7 @@ public final class IntervalQuery extends Query {
   @Override
   public Weight createWeight(IndexSearcher searcher, ScoreMode scoreMode, float boost)
       throws IOException {
-    return new IntervalWeight(this, boost, scoreMode);
+    return new IntervalWeight(this, boost);
   }
 
   @Override
@@ -147,12 +147,10 @@ public final class IntervalQuery extends Query {
 
   private class IntervalWeight extends Weight {
 
-    final ScoreMode scoreMode;
     final float boost;
 
-    public IntervalWeight(Query query, float boost, ScoreMode scoreMode) {
+    public IntervalWeight(Query query, float boost) {
       super(query);
-      this.scoreMode = scoreMode;
       this.boost = boost;
     }
 
@@ -188,12 +186,14 @@ public final class IntervalQuery extends Query {
     }
 
     @Override
-    public Scorer scorer(LeafReaderContext context) throws IOException {
+    public ScorerSupplier scorerSupplier(LeafReaderContext context) throws IOException {
       IntervalIterator intervals = intervalsSource.intervals(field, context);
       if (intervals == null) {
         return null;
       }
-      return new IntervalScorer(this, intervals, intervalsSource.minExtent(), boost, scoreFunction);
+      final var scorer =
+          new IntervalScorer(intervals, intervalsSource.minExtent(), boost, scoreFunction);
+      return new DefaultScorerSupplier(scorer);
     }
 
     @Override

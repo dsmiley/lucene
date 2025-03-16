@@ -124,6 +124,12 @@ public class SortedNumericSortField extends SortField {
           case DOUBLE:
             sf.setMissingValue(NumericUtils.sortableLongToDouble(in.readLong()));
             break;
+          case CUSTOM:
+          case DOC:
+          case REWRITEABLE:
+          case STRING_VAL:
+          case SCORE:
+          case STRING:
           default:
             throw new AssertionError();
         }
@@ -170,6 +176,12 @@ public class SortedNumericSortField extends SortField {
         case DOUBLE:
           out.writeLong(NumericUtils.doubleToSortableLong((double) missingValue));
           break;
+        case CUSTOM:
+        case DOC:
+        case REWRITEABLE:
+        case STRING_VAL:
+        case SCORE:
+        case STRING:
         default:
           throw new AssertionError();
       }
@@ -229,71 +241,114 @@ public class SortedNumericSortField extends SortField {
   }
 
   @Override
-  public FieldComparator<?> getComparator(int numHits, int sortPos) {
+  public FieldComparator<?> getComparator(int numHits, Pruning pruning) {
+    final FieldComparator<?> fieldComparator;
+    // we can use sort optimization with points if selector is MIN or MAX,
+    // because we can still build successful iterator over points in this case.
+    boolean isMinOrMax =
+        selector == SortedNumericSelector.Type.MAX || selector == SortedNumericSelector.Type.MIN;
     switch (type) {
       case INT:
-        return new IntComparator(numHits, getField(), (Integer) missingValue, reverse, sortPos) {
-          @Override
-          public LeafFieldComparator getLeafComparator(LeafReaderContext context)
-              throws IOException {
-            return new IntLeafComparator(context) {
+        fieldComparator =
+            new IntComparator(
+                numHits,
+                getField(),
+                (Integer) missingValue,
+                reverse,
+                isMinOrMax ? pruning : Pruning.NONE) {
               @Override
-              protected NumericDocValues getNumericDocValues(
-                  LeafReaderContext context, String field) throws IOException {
-                return SortedNumericSelector.wrap(
-                    DocValues.getSortedNumeric(context.reader(), field), selector, type);
+              public LeafFieldComparator getLeafComparator(LeafReaderContext context)
+                  throws IOException {
+                return new IntLeafComparator(context) {
+                  @Override
+                  protected NumericDocValues getNumericDocValues(
+                      LeafReaderContext context, String field) throws IOException {
+                    return SortedNumericSelector.wrap(
+                        DocValues.getSortedNumeric(context.reader(), field), selector, type);
+                  }
+                };
               }
             };
-          }
-        };
+        break;
       case FLOAT:
-        return new FloatComparator(numHits, getField(), (Float) missingValue, reverse, sortPos) {
-          @Override
-          public LeafFieldComparator getLeafComparator(LeafReaderContext context)
-              throws IOException {
-            return new FloatLeafComparator(context) {
+        fieldComparator =
+            new FloatComparator(
+                numHits,
+                getField(),
+                (Float) missingValue,
+                reverse,
+                isMinOrMax ? pruning : Pruning.NONE) {
               @Override
-              protected NumericDocValues getNumericDocValues(
-                  LeafReaderContext context, String field) throws IOException {
-                return SortedNumericSelector.wrap(
-                    DocValues.getSortedNumeric(context.reader(), field), selector, type);
+              public LeafFieldComparator getLeafComparator(LeafReaderContext context)
+                  throws IOException {
+                return new FloatLeafComparator(context) {
+                  @Override
+                  protected NumericDocValues getNumericDocValues(
+                      LeafReaderContext context, String field) throws IOException {
+                    return SortedNumericSelector.wrap(
+                        DocValues.getSortedNumeric(context.reader(), field), selector, type);
+                  }
+                };
               }
             };
-          }
-        };
+        break;
       case LONG:
-        return new LongComparator(numHits, getField(), (Long) missingValue, reverse, sortPos) {
-          @Override
-          public LeafFieldComparator getLeafComparator(LeafReaderContext context)
-              throws IOException {
-            return new LongLeafComparator(context) {
+        fieldComparator =
+            new LongComparator(
+                numHits,
+                getField(),
+                (Long) missingValue,
+                reverse,
+                isMinOrMax ? pruning : Pruning.NONE) {
               @Override
-              protected NumericDocValues getNumericDocValues(
-                  LeafReaderContext context, String field) throws IOException {
-                return SortedNumericSelector.wrap(
-                    DocValues.getSortedNumeric(context.reader(), field), selector, type);
+              public LeafFieldComparator getLeafComparator(LeafReaderContext context)
+                  throws IOException {
+                return new LongLeafComparator(context) {
+                  @Override
+                  protected NumericDocValues getNumericDocValues(
+                      LeafReaderContext context, String field) throws IOException {
+                    return SortedNumericSelector.wrap(
+                        DocValues.getSortedNumeric(context.reader(), field), selector, type);
+                  }
+                };
               }
             };
-          }
-        };
+        break;
       case DOUBLE:
-        return new DoubleComparator(numHits, getField(), (Double) missingValue, reverse, sortPos) {
-          @Override
-          public LeafFieldComparator getLeafComparator(LeafReaderContext context)
-              throws IOException {
-            return new DoubleLeafComparator(context) {
+        fieldComparator =
+            new DoubleComparator(
+                numHits,
+                getField(),
+                (Double) missingValue,
+                reverse,
+                isMinOrMax ? pruning : Pruning.NONE) {
               @Override
-              protected NumericDocValues getNumericDocValues(
-                  LeafReaderContext context, String field) throws IOException {
-                return SortedNumericSelector.wrap(
-                    DocValues.getSortedNumeric(context.reader(), field), selector, type);
+              public LeafFieldComparator getLeafComparator(LeafReaderContext context)
+                  throws IOException {
+                return new DoubleLeafComparator(context) {
+                  @Override
+                  protected NumericDocValues getNumericDocValues(
+                      LeafReaderContext context, String field) throws IOException {
+                    return SortedNumericSelector.wrap(
+                        DocValues.getSortedNumeric(context.reader(), field), selector, type);
+                  }
+                };
               }
             };
-          }
-        };
+        break;
+      case CUSTOM:
+      case DOC:
+      case REWRITEABLE:
+      case STRING_VAL:
+      case SCORE:
+      case STRING:
       default:
         throw new AssertionError();
     }
+    if (getOptimizeSortWithIndexedData() == false) {
+      fieldComparator.disableSkipping();
+    }
+    return fieldComparator;
   }
 
   private NumericDocValues getValue(LeafReader reader) throws IOException {
@@ -316,6 +371,12 @@ public class SortedNumericSortField extends SortField {
       case FLOAT:
         return new IndexSorter.FloatSorter(
             Provider.NAME, (Float) missingValue, reverse, this::getValue);
+      case CUSTOM:
+      case DOC:
+      case REWRITEABLE:
+      case STRING_VAL:
+      case STRING:
+      case SCORE:
       default:
         throw new AssertionError();
     }

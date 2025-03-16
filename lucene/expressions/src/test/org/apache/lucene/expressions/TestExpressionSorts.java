@@ -25,11 +25,9 @@ import org.apache.lucene.document.FloatDocValuesField;
 import org.apache.lucene.document.NumericDocValuesField;
 import org.apache.lucene.expressions.js.JavascriptCompiler;
 import org.apache.lucene.index.IndexReader;
-import org.apache.lucene.index.RandomIndexWriter;
 import org.apache.lucene.index.Term;
 import org.apache.lucene.search.BooleanClause;
 import org.apache.lucene.search.BooleanQuery;
-import org.apache.lucene.search.CheckHits;
 import org.apache.lucene.search.DoubleValuesSource;
 import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.MatchAllDocsQuery;
@@ -39,10 +37,12 @@ import org.apache.lucene.search.SortField;
 import org.apache.lucene.search.TermQuery;
 import org.apache.lucene.search.TopDocs;
 import org.apache.lucene.store.Directory;
+import org.apache.lucene.tests.index.RandomIndexWriter;
+import org.apache.lucene.tests.search.CheckHits;
+import org.apache.lucene.tests.util.English;
+import org.apache.lucene.tests.util.LuceneTestCase;
+import org.apache.lucene.tests.util.TestUtil;
 import org.apache.lucene.util.ArrayUtil;
-import org.apache.lucene.util.English;
-import org.apache.lucene.util.LuceneTestCase;
-import org.apache.lucene.util.TestUtil;
 
 /**
  * Tests some basic expressions against different queries, and fieldcache/docvalues fields against
@@ -100,7 +100,7 @@ public class TestExpressionSorts extends LuceneTestCase {
   void assertQuery(Query query) throws Exception {
     for (int i = 0; i < 10; i++) {
       boolean reversed = random().nextBoolean();
-      SortField fields[] =
+      SortField[] fields =
           new SortField[] {
             new SortField("int", SortField.Type.INT, reversed),
             new SortField("long", SortField.Type.LONG, reversed),
@@ -121,8 +121,8 @@ public class TestExpressionSorts extends LuceneTestCase {
     // make our actual sort, mutating original by replacing some of the
     // sortfields with equivalent expressions
 
-    SortField original[] = sort.getSort();
-    SortField mutated[] = new SortField[original.length];
+    SortField[] original = sort.getSort();
+    SortField[] mutated = new SortField[original.length];
     for (int i = 0; i < mutated.length; i++) {
       if (random().nextInt(3) > 0) {
         SortField s = original[i];
@@ -140,7 +140,7 @@ public class TestExpressionSorts extends LuceneTestCase {
     TopDocs actual = searcher.search(query, size, mutatedSort, random().nextBoolean());
     CheckHits.checkEqual(query, expected.scoreDocs, actual.scoreDocs);
 
-    if (size < actual.totalHits.value) {
+    if (size < actual.totalHits.value()) {
       expected = searcher.searchAfter(expected.scoreDocs[size - 1], query, size, sort);
       actual = searcher.searchAfter(actual.scoreDocs[size - 1], query, size, mutatedSort);
       CheckHits.checkEqual(query, expected.scoreDocs, actual.scoreDocs);
@@ -159,6 +159,11 @@ public class TestExpressionSorts extends LuceneTestCase {
         return DoubleValuesSource.fromDoubleField(field.getField());
       case SCORE:
         return DoubleValuesSource.SCORES;
+      case CUSTOM:
+      case DOC:
+      case REWRITEABLE:
+      case STRING:
+      case STRING_VAL:
       default:
         throw new UnsupportedOperationException();
     }

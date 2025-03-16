@@ -18,7 +18,7 @@ package org.apache.lucene.index;
 
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
-import org.apache.lucene.util.LuceneTestCase;
+import org.apache.lucene.tests.util.LuceneTestCase;
 
 public class TestFilterMergePolicy extends LuceneTestCase {
 
@@ -27,7 +27,9 @@ public class TestFilterMergePolicy extends LuceneTestCase {
       if (Modifier.isFinal(m.getModifiers()) || Modifier.isPrivate(m.getModifiers())) continue;
       try {
         FilterMergePolicy.class.getDeclaredMethod(m.getName(), m.getParameterTypes());
-      } catch (NoSuchMethodException e) {
+      } catch (
+          @SuppressWarnings("unused")
+          NoSuchMethodException e) {
         fail("FilterMergePolicy needs to override '" + m + "'");
       }
     }

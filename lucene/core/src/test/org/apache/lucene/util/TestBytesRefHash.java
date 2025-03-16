@@ -28,6 +28,8 @@ import java.util.SortedSet;
 import java.util.TreeSet;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicInteger;
+import org.apache.lucene.tests.util.LuceneTestCase;
+import org.apache.lucene.tests.util.TestUtil;
 import org.apache.lucene.util.BytesRefHash.MaxBytesLengthExceededException;
 import org.junit.Before;
 import org.junit.Test;
@@ -48,8 +50,7 @@ public class TestBytesRefHash extends LuceneTestCase {
   private ByteBlockPool newPool() {
     return random().nextBoolean() && pool != null
         ? pool
-        : new ByteBlockPool(
-            new RecyclingByteBlockAllocator(ByteBlockPool.BYTE_BLOCK_SIZE, random().nextInt(25)));
+        : new ByteBlockPool(new RecyclingByteBlockAllocator(random().nextInt(25)));
   }
 
   private BytesRefHash newHash(ByteBlockPool blockPool) {
@@ -60,7 +61,6 @@ public class TestBytesRefHash extends LuceneTestCase {
   }
 
   /** Test method for {@link org.apache.lucene.util.BytesRefHash#size()}. */
-  @Test
   public void testSize() {
     BytesRefBuilder ref = new BytesRefBuilder();
     int num = atLeast(2);
@@ -86,7 +86,6 @@ public class TestBytesRefHash extends LuceneTestCase {
   }
 
   /** Test method for {@link org.apache.lucene.util.BytesRefHash#get(int, BytesRef)} . */
-  @Test
   public void testGet() {
     BytesRefBuilder ref = new BytesRefBuilder();
     BytesRef scratch = new BytesRef();
@@ -123,7 +122,6 @@ public class TestBytesRefHash extends LuceneTestCase {
   }
 
   /** Test method for {@link org.apache.lucene.util.BytesRefHash#compact()}. */
-  @Test
   public void testCompact() {
     BytesRefBuilder ref = new BytesRefBuilder();
     int num = atLeast(2);
@@ -162,7 +160,6 @@ public class TestBytesRefHash extends LuceneTestCase {
   }
 
   /** Test method for {@link org.apache.lucene.util.BytesRefHash#sort()}. */
-  @Test
   public void testSort() {
     BytesRefBuilder ref = new BytesRefBuilder();
     int num = atLeast(2);
@@ -179,13 +176,17 @@ public class TestBytesRefHash extends LuceneTestCase {
         hash.add(ref.get());
         strings.add(str);
       }
-      int[] sort = hash.sort();
-      assertTrue(strings.size() < sort.length);
-      int i = 0;
-      BytesRef scratch = new BytesRef();
-      for (String string : strings) {
-        ref.copyChars(string);
-        assertEquals(ref.get(), hash.get(sort[i++], scratch));
+      for (int iter = 0; iter < 3; iter++) {
+        // Test duplicate sort on a BytesRefHash instance work well. This makes no sense but some
+        // users need that.
+        int[] sort = hash.sort();
+        assertTrue(strings.size() < sort.length);
+        int i = 0;
+        BytesRef scratch = new BytesRef();
+        for (String string : strings) {
+          ref.copyChars(string);
+          assertEquals(ref.get(), hash.get(sort[i++], scratch));
+        }
       }
       hash.clear();
       assertEquals(0, hash.size());
@@ -197,7 +198,6 @@ public class TestBytesRefHash extends LuceneTestCase {
    * Test method for {@link
    * org.apache.lucene.util.BytesRefHash#add(org.apache.lucene.util.BytesRef)} .
    */
-  @Test
   public void testAdd() {
     BytesRefBuilder ref = new BytesRefBuilder();
     BytesRef scratch = new BytesRef();
@@ -234,7 +234,6 @@ public class TestBytesRefHash extends LuceneTestCase {
     }
   }
 
-  @Test
   public void testFind() throws Exception {
     BytesRefBuilder ref = new BytesRefBuilder();
     BytesRef scratch = new BytesRef();
@@ -271,7 +270,6 @@ public class TestBytesRefHash extends LuceneTestCase {
     }
   }
 
-  @Test
   public void testConcurrentAccessToBytesRefHash() throws Exception {
     int num = atLeast(2);
     for (int j = 0; j < num; j++) {
@@ -279,7 +277,7 @@ public class TestBytesRefHash extends LuceneTestCase {
       List<String> strings = new ArrayList<>(numStrings);
       for (int i = 0; i < numStrings; i++) {
         final String str = TestUtil.randomRealisticUnicodeString(random(), 1, 1000);
-        hash.add(new BytesRef(str));
+        hash.add(newBytesRef(str));
         assertTrue(strings.add(str));
       }
       int hashSize = hash.size();
@@ -304,7 +302,7 @@ public class TestBytesRefHash extends LuceneTestCase {
                     throw new RuntimeException(e);
                   }
                   for (int k = 0; k < loops; k++) {
-                    BytesRef find = new BytesRef(strings.get(k % strings.size()));
+                    BytesRef find = newBytesRef(strings.get(k % strings.size()));
                     int id = hash.find(find);
                     if (id < 0) {
                       notFound.incrementAndGet();
@@ -357,7 +355,6 @@ public class TestBytesRefHash extends LuceneTestCase {
   }
 
   /** Test method for {@link org.apache.lucene.util.BytesRefHash#addByPoolOffset(int)} . */
-  @Test
   public void testAddByPoolOffset() {
     BytesRefBuilder ref = new BytesRefBuilder();
     BytesRef scratch = new BytesRef();

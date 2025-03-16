@@ -20,7 +20,6 @@ import java.io.IOException;
 import org.apache.lucene.store.DataInput;
 import org.apache.lucene.store.DataOutput;
 import org.apache.lucene.util.RamUsageEstimator;
-import org.apache.lucene.util.SuppressForbidden;
 import org.apache.lucene.util.fst.FSTCompiler;
 import org.apache.lucene.util.fst.Outputs;
 
@@ -40,44 +39,17 @@ import org.apache.lucene.util.fst.Outputs;
  *
  * @lucene.experimental
  */
-@SuppressForbidden(reason = "Uses a Long instance as a marker")
 public final class UpToTwoPositiveIntOutputs extends Outputs<Object> {
 
   /** Holds two long outputs. */
-  public static final class TwoLongs {
-    public final long first;
-    public final long second;
-
-    public TwoLongs(long first, long second) {
-      this.first = first;
-      this.second = second;
+  public record TwoLongs(long first, long second) {
+    public TwoLongs {
       assert first >= 0;
       assert second >= 0;
     }
-
-    @Override
-    public String toString() {
-      return "TwoLongs:" + first + "," + second;
-    }
-
-    @Override
-    public boolean equals(Object _other) {
-      if (_other instanceof TwoLongs) {
-        final TwoLongs other = (TwoLongs) _other;
-        return first == other.first && second == other.second;
-      } else {
-        return false;
-      }
-    }
-
-    @Override
-    public int hashCode() {
-      return (int) ((first ^ (first >>> 32)) ^ (second ^ (second >> 32)));
-    }
   }
 
-  @SuppressWarnings("deprecation")
-  private static final Long NO_OUTPUT = new Long(0);
+  private static final Long NO_OUTPUT = 0L;
 
   private final boolean doShare;
 
@@ -147,8 +119,7 @@ public final class UpToTwoPositiveIntOutputs extends Outputs<Object> {
     assert valid(_prefix, false);
     assert valid(_output, true);
     final Long prefix = (Long) _prefix;
-    if (_output instanceof Long) {
-      final Long output = (Long) _output;
+    if (_output instanceof Long output) {
       if (prefix == NO_OUTPUT) {
         return output;
       } else if (output == NO_OUTPUT) {
@@ -166,8 +137,7 @@ public final class UpToTwoPositiveIntOutputs extends Outputs<Object> {
   @Override
   public void write(Object _output, DataOutput out) throws IOException {
     assert valid(_output, true);
-    if (_output instanceof Long) {
-      final Long output = (Long) _output;
+    if (_output instanceof Long output) {
       out.writeVLong(output << 1);
     } else {
       final TwoLongs output = (TwoLongs) _output;

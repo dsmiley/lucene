@@ -20,14 +20,17 @@ import java.text.NumberFormat;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import org.apache.lucene.benchmark.Constants;
 import org.apache.lucene.benchmark.byTask.PerfRunData;
 import org.apache.lucene.benchmark.byTask.feeds.NoMoreDataException;
 import org.apache.lucene.benchmark.byTask.stats.TaskStats;
 import org.apache.lucene.util.ArrayUtil;
+import org.apache.lucene.util.SuppressForbidden;
 
 /** Sequence of parallel or sequential tasks. */
+@SuppressForbidden(reason = "Thread sleep")
 public class TaskSequence extends PerfTask {
-  public static int REPEAT_EXHAUST = -2;
+  public static final int REPEAT_EXHAUST = -2;
   private ArrayList<PerfTask> tasks;
   private int repetitions = 1;
   private boolean parallel;
@@ -40,7 +43,7 @@ public class TaskSequence extends PerfTask {
   private boolean resetExhausted = false;
   private PerfTask[] tasksArray;
   private boolean anyExhaustibleTasks;
-  private boolean collapsable = false; // to not collapse external sequence named in alg.
+  private final boolean collapsable; // to not collapse external sequence named in alg.
 
   private boolean fixedTime; // true if we run for fixed time
   private double runTimeSec; // how long to run for
@@ -82,12 +85,16 @@ public class TaskSequence extends PerfTask {
     }
   }
 
-  /** @return Returns the parallel. */
+  /**
+   * @return Returns the parallel.
+   */
   public boolean isParallel() {
     return parallel;
   }
 
-  /** @return Returns the repetitions. */
+  /**
+   * @return Returns the repetitions.
+   */
   public int getRepetitions() {
     return repetitions;
   }
@@ -99,7 +106,9 @@ public class TaskSequence extends PerfTask {
     fixedTime = true;
   }
 
-  /** @param repetitions The repetitions to set. */
+  /**
+   * @param repetitions The repetitions to set.
+   */
   public void setRepetitions(int repetitions) throws Exception {
     fixedTime = false;
     this.repetitions = repetitions;
@@ -111,7 +120,9 @@ public class TaskSequence extends PerfTask {
     setSequenceName();
   }
 
-  /** @return Returns the parent. */
+  /**
+   * @return Returns the parent.
+   */
   public TaskSequence getParent() {
     return parent;
   }
@@ -195,7 +206,9 @@ public class TaskSequence extends PerfTask {
               countsByTime[slot] += inc;
             }
             if (anyExhaustibleTasks) updateExhausted(task);
-          } catch (NoMoreDataException e) {
+          } catch (
+              @SuppressWarnings("unused")
+              NoMoreDataException e) {
             exhausted = true;
           }
         }
@@ -262,7 +275,9 @@ public class TaskSequence extends PerfTask {
           }
 
           if (anyExhaustibleTasks) updateExhausted(task);
-        } catch (NoMoreDataException e) {
+        } catch (
+            @SuppressWarnings("unused")
+            NoMoreDataException e) {
           exhausted = true;
         }
       }
@@ -276,8 +291,7 @@ public class TaskSequence extends PerfTask {
     if (task instanceof ResetInputsTask) {
       exhausted = false;
       resetExhausted = true;
-    } else if (task instanceof TaskSequence) {
-      TaskSequence t = (TaskSequence) task;
+    } else if (task instanceof TaskSequence t) {
       if (t.resetExhausted) {
         exhausted = false;
         resetExhausted = true;
@@ -305,7 +319,9 @@ public class TaskSequence extends PerfTask {
           updateExhausted(task);
         }
         count += n;
-      } catch (NoMoreDataException e) {
+      } catch (
+          @SuppressWarnings("unused")
+          NoMoreDataException e) {
         exhausted = true;
       } catch (Exception e) {
         throw new RuntimeException(e);
@@ -333,13 +349,24 @@ public class TaskSequence extends PerfTask {
     final TaskStats stats = getRunData().getPoints().getCurrentStats();
 
     initTasksArray();
-    ParallelTask t[] = runningParallelTasks = new ParallelTask[repetitions * tasks.size()];
+    ParallelTask[] t = runningParallelTasks = new ParallelTask[repetitions * tasks.size()];
+    // Get number of parallel threads from algo file and set it to use in ReuersContentSource.java's
+    // docCountArrInit()
+    this.getRunData().getConfig().setNumThreads(t.length);
     // prepare threads
     int index = 0;
     for (int k = 0; k < repetitions; k++) {
       for (int i = 0; i < tasksArray.length; i++) {
         final PerfTask task = tasksArray[i].clone();
-        t[index++] = new ParallelTask(task);
+        t[index] = new ParallelTask(task);
+        // Setting unique ThreadName with index value which is used in ReuersContentSource.java's
+        // getNextDocData().Please make changes
+        // in ReuersContentSource.java's getNextDocData() for
+        // Integer.parseInt(Thread.currentThread().getName().substring(parallelTaskThreadSize + 1,
+        // threadIndexSize))
+        // before making any modifications here
+        t[index].setName(Constants.PARALLEL_TASK_THREAD_NAME_PREFIX + "-" + index);
+        index++;
       }
     }
     // run threads
@@ -356,8 +383,7 @@ public class TaskSequence extends PerfTask {
     for (int i = 0; i < t.length; i++) {
       t[i].join();
       count += t[i].count;
-      if (t[i].task instanceof TaskSequence) {
-        TaskSequence sub = (TaskSequence) t[i].task;
+      if (t[i].task instanceof TaskSequence sub) {
         if (sub.countsByTime != null) {
           if (countsByTime == null) {
             countsByTime = new int[sub.countsByTime.length];
@@ -466,7 +492,9 @@ public class TaskSequence extends PerfTask {
     return (perMin ? rate : 60 * rate);
   }
 
-  /** @param rate The rate to set. */
+  /**
+   * @param rate The rate to set.
+   */
   public void setRate(int rate, boolean perMin) {
     this.rate = rate;
     this.perMin = perMin;
@@ -493,7 +521,9 @@ public class TaskSequence extends PerfTask {
     return seqName; // override to include more info
   }
 
-  /** @return Returns the tasks. */
+  /**
+   * @return Returns the tasks.
+   */
   public ArrayList<PerfTask> getTasks() {
     return tasks;
   }

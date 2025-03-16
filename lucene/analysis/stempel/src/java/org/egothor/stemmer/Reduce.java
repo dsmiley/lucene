@@ -58,6 +58,8 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Iterator;
 import java.util.List;
+import org.apache.lucene.internal.hppc.CharCursor;
+import org.apache.lucene.internal.hppc.ObjectCursor;
 
 /** The Reduce object is used to remove gaps in a Trie which stores a dictionary. */
 public class Reduce {
@@ -75,7 +77,7 @@ public class Reduce {
     List<CharSequence> cmds = orig.cmds;
     List<Row> rows = new ArrayList<>();
     List<Row> orows = orig.rows;
-    int remap[] = new int[orows.size()];
+    int[] remap = new int[orows.size()];
 
     Arrays.fill(remap, -1);
     rows = removeGaps(orig.root, rows, new ArrayList<Row>(), remap);
@@ -83,14 +85,14 @@ public class Reduce {
     return new Trie(orig.forward, remap[orig.root], cmds, rows);
   }
 
-  List<Row> removeGaps(int ind, List<Row> old, List<Row> to, int remap[]) {
+  List<Row> removeGaps(int ind, List<Row> old, List<Row> to, int[] remap) {
     remap[ind] = to.size();
 
     Row now = old.get(ind);
     to.add(now);
-    Iterator<Cell> i = now.cells.values().iterator();
+    Iterator<ObjectCursor<Cell>> i = now.cells.values().iterator();
     for (; i.hasNext(); ) {
-      Cell c = i.next();
+      Cell c = i.next().value;
       if (c.ref >= 0 && remap[c.ref] < 0) {
         removeGaps(c.ref, old, to, remap);
       }
@@ -107,11 +109,11 @@ public class Reduce {
      * @param old Description of the Parameter
      * @param remap Description of the Parameter
      */
-    public Remap(Row old, int remap[]) {
+    public Remap(Row old, int[] remap) {
       super();
-      Iterator<Character> i = old.cells.keySet().iterator();
+      Iterator<CharCursor> i = old.cells.keys().iterator();
       for (; i.hasNext(); ) {
-        Character ch = i.next();
+        char ch = i.next().value;
         Cell c = old.at(ch);
         Cell nc;
         if (c.ref >= 0) {

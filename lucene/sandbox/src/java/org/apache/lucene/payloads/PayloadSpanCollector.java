@@ -21,7 +21,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import org.apache.lucene.index.PostingsEnum;
 import org.apache.lucene.index.Term;
-import org.apache.lucene.search.spans.SpanCollector;
+import org.apache.lucene.queries.spans.SpanCollector;
 import org.apache.lucene.util.BytesRef;
 
 /** SpanCollector for collecting payloads */
@@ -45,7 +45,9 @@ public class PayloadSpanCollector implements SpanCollector {
     payloads.clear();
   }
 
-  /** @return the collected payloads */
+  /**
+   * @return the collected payloads
+   */
   public Collection<byte[]> getPayloads() {
     return payloads;
   }

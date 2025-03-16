@@ -28,11 +28,14 @@ import java.nio.file.Paths;
 import java.text.ParseException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import java.util.regex.Pattern;
-import java.util.stream.Collectors;
-import org.apache.lucene.util.LuceneTestCase;
+import org.apache.lucene.tests.util.LuceneTestCase;
+import org.apache.lucene.util.NamedThreadFactory;
 import org.junit.Assume;
 import org.junit.AssumptionViolatedException;
 import org.junit.BeforeClass;
@@ -62,7 +65,17 @@ public class TestPerformance extends LuceneTestCase {
 
   @Test
   public void en_suggest() throws Exception {
-    checkSuggestionPerformance("en", 3_000);
+    checkSuggestionPerformance("en", 3_500);
+  }
+
+  @Test
+  public void ru() throws Exception {
+    checkAnalysisPerformance("ru", 400_000);
+  }
+
+  @Test
+  public void ru_suggest() throws Exception {
+    checkSuggestionPerformance("ru", 1000);
   }
 
   @Test
@@ -72,7 +85,7 @@ public class TestPerformance extends LuceneTestCase {
 
   @Test
   public void de_suggest() throws Exception {
-    checkSuggestionPerformance("de", 60);
+    checkSuggestionPerformance("de", 250);
   }
 
   @Test
@@ -82,13 +95,25 @@ public class TestPerformance extends LuceneTestCase {
 
   @Test
   public void fr_suggest() throws Exception {
-    checkSuggestionPerformance("fr", 120);
+    checkSuggestionPerformance("fr", 1_000);
+  }
+
+  @Test
+  public void uk() throws Exception {
+    checkAnalysisPerformance("uk", 200_000);
+  }
+
+  @Test
+  public void uk_suggest() throws Exception {
+    checkSuggestionPerformance("uk", 800);
   }
 
   private Dictionary loadDictionary(String code) throws IOException, ParseException {
+    long start = System.nanoTime();
     Path aff = findAffFile(code);
     Dictionary dictionary = TestAllDictionaries.loadDictionary(aff);
-    System.out.println("Loaded " + aff);
+    System.out.println(
+        "Loaded " + aff + " in " + TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start) + "ms");
     return dictionary;
   }
 
@@ -96,61 +121,119 @@ public class TestPerformance extends LuceneTestCase {
     Dictionary dictionary = loadDictionary(code);
 
     List<String> words = loadWords(code, wordCount, dictionary);
+    List<String> halfWords = words.subList(0, words.size() / 2);
 
     Stemmer stemmer = new Stemmer(dictionary);
     Hunspell speller = new Hunspell(dictionary, TimeoutPolicy.NO_TIMEOUT, () -> {});
-    measure(
-        "Stemming " + code,
-        blackHole -> {
-          for (String word : words) {
-            blackHole.accept(stemmer.stem(word));
-          }
-        });
-    measure(
-        "Spellchecking " + code,
-        blackHole -> {
-          for (String word : words) {
-            blackHole.accept(speller.spell(word));
-          }
-        });
+    int cpus = Runtime.getRuntime().availableProcessors();
+    ExecutorService executor =
+        Executors.newFixedThreadPool(cpus, new NamedThreadFactory("hunspellStemming-"));
+
+    try {
+      measure("Stemming " + code, words.size(), blackHole -> stemWords(words, stemmer, blackHole));
+
+      measure(
+          "Multi-threaded stemming " + code,
+          words.size(),
+          blackHole -> {
+            List<Future<?>> futures = new ArrayList<>();
+            for (int i = 0; i < cpus; i++) {
+              Stemmer localStemmer = new Stemmer(dictionary);
+              futures.add(executor.submit(() -> stemWords(halfWords, localStemmer, blackHole)));
+            }
+            try {
+              for (Future<?> future : futures) {
+                future.get();
+              }
+            } catch (Exception e) {
+              throw new RuntimeException(e);
+            }
+          });
+
+      measure(
+          "Spellchecking " + code,
+          words.size(),
+          blackHole -> {
+            for (String word : words) {
+              blackHole.accept(speller.spell(word));
+            }
+          });
+    } finally {
+      executor.shutdown();
+      assertTrue(executor.awaitTermination(1, TimeUnit.MINUTES));
+    }
+
     System.out.println();
+  }
+
+  private void stemWords(List<String> words, Stemmer stemmer, Consumer<Object> blackHole) {
+    for (String word : words) {
+      blackHole.accept(stemmer.stem(word));
+    }
   }
 
   private void checkSuggestionPerformance(String code, int wordCount) throws Exception {
     Dictionary dictionary = loadDictionary(code);
-    Hunspell speller = new Hunspell(dictionary, TimeoutPolicy.THROW_EXCEPTION, () -> {});
+    Runnable checkCanceled = () -> {};
+    Suggester base = new Suggester(dictionary);
+    Suggester optimized =
+        base.withSuggestibleEntryCache().withFragmentChecker(fragmentChecker(dictionary, code));
+    Hunspell speller = new Hunspell(dictionary, TimeoutPolicy.THROW_EXCEPTION, checkCanceled);
     List<String> words =
         loadWords(code, wordCount, dictionary).stream()
-            .filter(w -> hasQuickSuggestions(speller, w))
-            .collect(Collectors.toList());
+            .distinct()
+            .filter(w -> hasQuickSuggestions(speller, base, optimized, w))
+            .toList();
     System.out.println("Checking " + words.size() + " misspelled words");
 
     measure(
         "Suggestions for " + code,
+        words.size(),
         blackHole -> {
           for (String word : words) {
-            blackHole.accept(speller.suggest(word));
+            blackHole.accept(optimized.suggestNoTimeout(word, checkCanceled));
           }
         });
     System.out.println();
   }
 
-  private boolean hasQuickSuggestions(Hunspell speller, String word) {
+  private static FragmentChecker fragmentChecker(Dictionary dictionary, String langCode) {
+    long started = System.nanoTime();
+    var trigram = NGramFragmentChecker.fromAllSimpleWords(3, dictionary, () -> {});
+    long elapsed = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started);
+    System.out.println("Populated " + trigram.hashCount() + " trigram hashes in " + elapsed + "ms");
+    if ("de".equals(langCode)) {
+      return (word, start, end) ->
+          word.charAt(0) != '-'
+              && word.charAt(word.length() - 1) != '-'
+              && trigram.hasImpossibleFragmentAround(word, start, end);
+    }
+    return trigram;
+  }
+
+  private boolean hasQuickSuggestions(
+      Hunspell speller, Suggester base, Suggester optimized, String word) {
     if (speller.spell(word)) {
       return false;
     }
 
-    long start = System.nanoTime();
+    List<String> fromOptimized;
     try {
-      speller.suggest(word);
-    } catch (SuggestionTimeoutException e) {
+      fromOptimized = optimized.suggestWithTimeout(word, Hunspell.SUGGEST_TIME_LIMIT, () -> {});
+    } catch (
+        @SuppressWarnings("unused")
+        SuggestionTimeoutException e) {
       System.out.println("Timeout happened for " + word + ", skipping");
       return false;
     }
-    long elapsed = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start);
-    if (elapsed > Hunspell.SUGGEST_TIME_LIMIT * 4 / 5) {
-      System.out.println(elapsed + "ms for " + word + ", too close to time limit, skipping");
+
+    List<String> fromBase = base.suggestNoTimeout(word, () -> {});
+    if (!fromBase.equals(fromOptimized)) {
+      fail(
+          "Optimization breaks suggestions: "
+              + ("for '" + word + "', base=" + fromBase + ", optimized=" + fromOptimized));
     }
+
     return true;
   }
 
@@ -181,7 +264,8 @@ public class TestPerformance extends LuceneTestCase {
         String line = reader.readLine();
         if (line == null) break;
 
-        for (String token : line.split("[^a-zA-Z" + Pattern.quote(dictionary.wordChars) + "]+")) {
+        for (String token :
+            line.split("[^\\p{IsLetter}" + Pattern.quote(dictionary.wordChars) + "]+")) {
           String word = stripPunctuation(token);
           if (word != null) {
             words.add(word);
@@ -195,7 +279,7 @@ public class TestPerformance extends LuceneTestCase {
     return words;
   }
 
-  private void measure(String what, Iteration iteration) {
+  private void measure(String what, int wordCount, Iteration iteration) {
     Consumer<Object> consumer =
         o -> {
           if (o == null) {
@@ -210,16 +294,16 @@ public class TestPerformance extends LuceneTestCase {
 
     List<Long> times = new ArrayList<>();
     for (int i = 0; i < 7; i++) {
-      long start = System.currentTimeMillis();
+      long start = System.nanoTime();
       iteration.run(consumer);
-      times.add(System.currentTimeMillis() - start);
+      times.add(TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start));
     }
+    double average = times.stream().mapToLong(Long::longValue).average().orElseThrow();
     System.out.println(
         what
-            + ": average "
-            + times.stream().mapToLong(Long::longValue).average().orElseThrow()
-            + ", all times = "
-            + times);
+            + (": average " + average)
+            + (" (" + (average / wordCount) + " per word)")
+            + (", all times = " + times));
   }
 
   private interface Iteration {

@@ -19,7 +19,6 @@ package org.apache.lucene.document;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.Arrays;
-import java.util.Comparator;
 import org.apache.lucene.index.PointValues;
 import org.apache.lucene.search.PointInSetQuery;
 import org.apache.lucene.search.PointRangeQuery;
@@ -70,6 +69,7 @@ public class InetAddressPoint extends Field {
 
   /** The minimum value that an ip address can hold. */
   public static final InetAddress MIN_VALUE;
+
   /** The maximum value that an ip address can hold. */
   public static final InetAddress MAX_VALUE;
 
@@ -182,7 +182,7 @@ public class InetAddressPoint extends Field {
   }
 
   /** Decodes InetAddress value from binary encoding */
-  public static InetAddress decode(byte value[]) {
+  public static InetAddress decode(byte[] value) {
     try {
       return InetAddress.getByAddress(value);
     } catch (UnknownHostException e) {
@@ -227,8 +227,8 @@ public class InetAddressPoint extends Field {
     }
     // create the lower value by zeroing out the host portion, upper value by filling it with all
     // ones.
-    byte lower[] = value.getAddress();
-    byte upper[] = value.getAddress();
+    byte[] lower = value.getAddress();
+    byte[] upper = value.getAddress();
     for (int i = prefixLength; i < 8 * lower.length; i++) {
       int m = 1 << (7 - (i & 7));
       lower[i >> 3] &= ~m;
@@ -287,14 +287,7 @@ public class InetAddressPoint extends Field {
       sortedValues[i] = encode(values[i]);
     }
 
-    Arrays.sort(
-        sortedValues,
-        new Comparator<byte[]>() {
-          @Override
-          public int compare(byte[] a, byte[] b) {
-            return Arrays.compareUnsigned(a, 0, BYTES, b, 0, BYTES);
-          }
-        });
+    Arrays.sort(sortedValues, (a, b) -> Arrays.compareUnsigned(a, 0, BYTES, b, 0, BYTES));
 
     final BytesRef encoded = new BytesRef(new byte[BYTES]);
 

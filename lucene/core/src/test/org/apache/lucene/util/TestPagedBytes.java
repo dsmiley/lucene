@@ -17,14 +17,18 @@
 package org.apache.lucene.util;
 
 import java.io.IOException;
-import java.util.*;
-import org.apache.lucene.store.BaseDirectoryWrapper;
+import java.util.Arrays;
+import java.util.Random;
 import org.apache.lucene.store.DataInput;
 import org.apache.lucene.store.DataOutput;
 import org.apache.lucene.store.IOContext;
 import org.apache.lucene.store.IndexInput;
 import org.apache.lucene.store.IndexOutput;
-import org.apache.lucene.store.MockDirectoryWrapper;
+import org.apache.lucene.tests.store.BaseDirectoryWrapper;
+import org.apache.lucene.tests.store.MockDirectoryWrapper;
+import org.apache.lucene.tests.util.LuceneTestCase;
+import org.apache.lucene.tests.util.RamUsageTester;
+import org.apache.lucene.tests.util.TestUtil;
 import org.junit.Ignore;
 
 public class TestPagedBytes extends LuceneTestCase {
@@ -87,6 +91,7 @@ public class TestPagedBytes extends LuceneTestCase {
       final BytesRef slice = new BytesRef();
       for (int iter2 = 0; iter2 < 100; iter2++) {
         final int pos = random.nextInt(numBytes - 1);
+        assertEquals(answer[pos], reader.getByte(pos));
         final int len = random.nextInt(Math.min(blockSize + 1, numBytes - pos));
         reader.fillSlice(slice, pos, len);
         for (int byteUpto = 0; byteUpto < len; byteUpto++) {
@@ -111,9 +116,9 @@ public class TestPagedBytes extends LuceneTestCase {
       final DataOutput out = p.getDataOutput();
       final int numBytes;
       if (TEST_NIGHTLY) {
-        numBytes = random().nextInt(10_000_000);
+        numBytes = TestUtil.nextInt(random(), 1, 10_000_000);
       } else {
-        numBytes = random().nextInt(1_000_000);
+        numBytes = TestUtil.nextInt(random(), 1, 1_000_000);
       }
 
       final byte[] answer = new byte[numBytes];
@@ -214,12 +219,12 @@ public class TestPagedBytes extends LuceneTestCase {
     PagedBytes b = new PagedBytes(blockBits);
     final int totalBytes = random().nextInt(10000);
     for (long pointer = 0; pointer < totalBytes; ) {
-      BytesRef bytes = new BytesRef(TestUtil.randomSimpleString(random(), 10));
+      BytesRef bytes = newBytesRef(TestUtil.randomSimpleString(random(), 10));
       pointer = b.copyUsingLengthPrefix(bytes);
     }
-    assertEquals(RamUsageTester.sizeOf(b), b.ramBytesUsed());
+    assertEquals(RamUsageTester.ramUsed(b), b.ramBytesUsed());
     final PagedBytes.Reader reader = b.freeze(random().nextBoolean());
-    assertEquals(RamUsageTester.sizeOf(b), b.ramBytesUsed());
-    assertEquals(RamUsageTester.sizeOf(reader), reader.ramBytesUsed());
+    assertEquals(RamUsageTester.ramUsed(b), b.ramBytesUsed());
+    assertEquals(RamUsageTester.ramUsed(reader), reader.ramBytesUsed());
   }
 }

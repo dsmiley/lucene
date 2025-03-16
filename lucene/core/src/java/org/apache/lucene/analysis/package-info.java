@@ -343,7 +343,7 @@
  *       undefined as long as they both leave from the same position. As result, all synonyms of a
  *       token would be considered to appear in exactly the same position as that token, and so
  *       would they be seen by phrase and proximity searches. For multi-token synonyms to work
- *       correctly, you should use {@code SynoymGraphFilter} at search time only.
+ *       correctly, you should use {@code SynonymGraphFilter} at search time only.
  * </ol>
  *
  * <h3>Token Position Length</h3>
@@ -553,7 +553,7 @@
  * <h3>Testing Your Analysis Component</h3>
  *
  * <p>The lucene-test-framework component defines <a
- * href="{@docRoot}/../test-framework/org/apache/lucene/analysis/BaseTokenStreamTestCase.html">BaseTokenStreamTestCase</a>.
+ * href="{@docRoot}/../test-framework/org/apache/lucene/tests/analysis/BaseTokenStreamTestCase.html">BaseTokenStreamTestCase</a>.
  * By extending this class, you can create JUnit tests that validate that your Analyzer and/or
  * analysis components correctly implement the protocol. The checkRandomData methods of that class
  * are particularly effective in flushing out errors.
@@ -782,7 +782,7 @@
  *
  * <pre class="prettyprint">
  *   public interface PartOfSpeechAttribute extends Attribute {
- *     public static enum PartOfSpeech {
+ *     public enum PartOfSpeech {
  *       Noun, Verb, Adjective, Adverb, Pronoun, Preposition, Conjunction, Article, Unknown
  *     }
  *

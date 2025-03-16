@@ -21,6 +21,7 @@ import java.util.Map;
 import java.util.Set;
 import org.apache.lucene.util.BitUtil;
 import org.apache.lucene.util.BytesRef;
+import org.apache.lucene.util.GroupVIntUtil;
 
 /**
  * Abstract base class for performing write operations of Lucene's low-level data types.
@@ -29,6 +30,7 @@ import org.apache.lucene.util.BytesRef;
  * internal state like file position).
  */
 public abstract class DataOutput {
+  private byte[] groupVIntBytes;
 
   /**
    * Writes a single byte.
@@ -63,27 +65,27 @@ public abstract class DataOutput {
   public abstract void writeBytes(byte[] b, int offset, int length) throws IOException;
 
   /**
-   * Writes an int as four bytes.
-   *
-   * <p>32-bit unsigned integer written as four bytes, high-order bytes first.
+   * Writes an int as four bytes (LE byte order).
    *
    * @see DataInput#readInt()
+   * @see BitUtil#VH_LE_INT
    */
   public void writeInt(int i) throws IOException {
-    writeByte((byte) (i >> 24));
-    writeByte((byte) (i >> 16));
-    writeByte((byte) (i >> 8));
     writeByte((byte) i);
+    writeByte((byte) (i >> 8));
+    writeByte((byte) (i >> 16));
+    writeByte((byte) (i >> 24));
   }
 
   /**
-   * Writes a short as two bytes.
+   * Writes a short as two bytes (LE byte order).
    *
    * @see DataInput#readShort()
+   * @see BitUtil#VH_LE_SHORT
    */
   public void writeShort(short i) throws IOException {
-    writeByte((byte) (i >> 8));
     writeByte((byte) i);
+    writeByte((byte) (i >> 8));
   }
 
   /**
@@ -100,89 +102,89 @@ public abstract class DataOutput {
    *
    * <table class="padding2" style="border-spacing: 0px; border-collapse: separate; border: 0">
    * <caption>variable length encoding examples</caption>
-   * <tr valign="top">
+   * <tr style="vertical-align: top">
    *   <th style="text-align:left">Value</th>
    *   <th style="text-align:left">Byte 1</th>
    *   <th style="text-align:left">Byte 2</th>
    *   <th style="text-align:left">Byte 3</th>
    * </tr>
-   * <tr valign="bottom">
+   * <tr style="vertical-align: bottom">
    *   <td>0</td>
    *   <td><code>00000000</code></td>
    *   <td></td>
    *   <td></td>
    * </tr>
-   * <tr valign="bottom">
+   * <tr style="vertical-align: bottom">
    *   <td>1</td>
    *   <td><code>00000001</code></td>
    *   <td></td>
    *   <td></td>
    * </tr>
-   * <tr valign="bottom">
+   * <tr style="vertical-align: bottom">
    *   <td>2</td>
    *   <td><code>00000010</code></td>
    *   <td></td>
    *   <td></td>
    * </tr>
    * <tr>
-   *   <td valign="top">...</td>
-   *   <td valign="bottom"></td>
-   *   <td valign="bottom"></td>
-   *   <td valign="bottom"></td>
+   *   <td style="vertical-align: top">...</td>
+   *   <td></td>
+   *   <td></td>
+   *   <td></td>
    * </tr>
-   * <tr valign="bottom">
+   * <tr style="vertical-align: bottom">
    *   <td>127</td>
    *   <td><code>01111111</code></td>
    *   <td></td>
    *   <td></td>
    * </tr>
-   * <tr valign="bottom">
+   * <tr style="vertical-align: bottom">
    *   <td>128</td>
    *   <td><code>10000000</code></td>
    *   <td><code>00000001</code></td>
    *   <td></td>
    * </tr>
-   * <tr valign="bottom">
+   * <tr style="vertical-align: bottom">
    *   <td>129</td>
    *   <td><code>10000001</code></td>
    *   <td><code>00000001</code></td>
    *   <td></td>
    * </tr>
-   * <tr valign="bottom">
+   * <tr style="vertical-align: bottom">
    *   <td>130</td>
    *   <td><code>10000010</code></td>
    *   <td><code>00000001</code></td>
    *   <td></td>
    * </tr>
    * <tr>
-   *   <td valign="top">...</td>
+   *   <td style="vertical-align: top">...</td>
    *   <td></td>
    *   <td></td>
    *   <td></td>
    * </tr>
-   * <tr valign="bottom">
+   * <tr style="vertical-align: bottom">
    *   <td>16,383</td>
    *   <td><code>11111111</code></td>
    *   <td><code>01111111</code></td>
    *   <td></td>
    * </tr>
-   * <tr valign="bottom">
+   * <tr style="vertical-align: bottom">
    *   <td>16,384</td>
    *   <td><code>10000000</code></td>
    *   <td><code>10000000</code></td>
    *   <td><code>00000001</code></td>
    * </tr>
-   * <tr valign="bottom">
+   * <tr style="vertical-align: bottom">
    *   <td>16,385</td>
    *   <td><code>10000001</code></td>
    *   <td><code>10000000</code></td>
    *   <td><code>00000001</code></td>
    * </tr>
    * <tr>
-   *   <td valign="top">...</td>
-   *   <td valign="bottom"></td>
-   *   <td valign="bottom"></td>
-   *   <td valign="bottom"></td>
+   *   <td style="vertical-align: top">...</td>
+   *   <td ></td>
+   *   <td ></td>
+   *   <td ></td>
    * </tr>
    * </table>
    *
@@ -213,15 +215,14 @@ public abstract class DataOutput {
   }
 
   /**
-   * Writes a long as eight bytes.
-   *
-   * <p>64-bit unsigned integer written as eight bytes, high-order bytes first.
+   * Writes a long as eight bytes (LE byte order).
    *
    * @see DataInput#readLong()
+   * @see BitUtil#VH_LE_LONG
    */
   public void writeLong(long i) throws IOException {
-    writeInt((int) (i >> 32));
     writeInt((int) i);
+    writeInt((int) (i >> 32));
   }
 
   /**
@@ -273,7 +274,7 @@ public abstract class DataOutput {
     writeBytes(utf8Result.bytes, utf8Result.offset, utf8Result.length);
   }
 
-  private static int COPY_BUFFER_SIZE = 16384;
+  private static final int COPY_BUFFER_SIZE = 16384;
   private byte[] copyBuffer;
 
   /** Copy numBytes bytes from input to ourself. */
@@ -322,5 +323,36 @@ public abstract class DataOutput {
     for (String value : set) {
       writeString(value);
     }
+  }
+
+  /**
+   * Encode integers using group-varint. It uses {@link DataOutput#writeVInt VInt} to encode tail
+   * values that are not enough for a group. we need a long[] because this is what postings are
+   * using, all longs are actually required to be integers.
+   *
+   * @param values the values to write
+   * @param limit the number of values to write.
+   * @lucene.experimental
+   */
+  public void writeGroupVInts(long[] values, int limit) throws IOException {
+    if (groupVIntBytes == null) {
+      groupVIntBytes = new byte[GroupVIntUtil.MAX_LENGTH_PER_GROUP];
+    }
+    GroupVIntUtil.writeGroupVInts(this, groupVIntBytes, values, limit);
+  }
+
+  /**
+   * Encode integers using group-varint. It uses {@link DataOutput#writeVInt VInt} to encode tail
+   * values that are not enough for a group.
+   *
+   * @param values the values to write
+   * @param limit the number of values to write.
+   * @lucene.experimental
+   */
+  public void writeGroupVInts(int[] values, int limit) throws IOException {
+    if (groupVIntBytes == null) {
+      groupVIntBytes = new byte[GroupVIntUtil.MAX_LENGTH_PER_GROUP];
+    }
+    GroupVIntUtil.writeGroupVInts(this, groupVIntBytes, values, limit);
   }
 }

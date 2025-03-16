@@ -19,6 +19,7 @@ package org.apache.lucene.index;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -46,6 +47,10 @@ import java.util.concurrent.atomic.AtomicInteger;
  */
 public abstract class BaseCompositeReader<R extends IndexReader> extends CompositeReader {
   private final R[] subReaders;
+
+  /** A comparator for sorting sub-readers */
+  protected final Comparator<R> subReadersSorter;
+
   private final int[] starts; // 1st docno for each reader
   private final int maxDoc;
   private AtomicInteger numDocs = new AtomicInteger(-1); // computed lazily
@@ -63,9 +68,15 @@ public abstract class BaseCompositeReader<R extends IndexReader> extends Composi
    *     #getSequentialSubReaders} and used to resolve the correct subreader for docID-based
    *     methods. <b>Please note:</b> This array is <b>not</b> cloned and not protected for
    *     modification, the subclass is responsible to do this.
+   * @param subReadersSorter – a comparator for sorting sub readers. If not {@code null}, this
+   *     comparator is used to sort sub readers, before using the for resolving doc IDs.
    */
-  protected BaseCompositeReader(R[] subReaders) throws IOException {
+  protected BaseCompositeReader(R[] subReaders, Comparator<R> subReadersSorter) throws IOException {
+    if (subReadersSorter != null) {
+      Arrays.sort(subReaders, subReadersSorter);
+    }
     this.subReaders = subReaders;
+    this.subReadersSorter = subReadersSorter;
     this.subReadersList = Collections.unmodifiableList(Arrays.asList(subReaders));
     starts = new int[subReaders.length + 1]; // build starts array
     long maxDoc = 0;
@@ -102,10 +113,29 @@ public abstract class BaseCompositeReader<R extends IndexReader> extends Composi
   }
 
   @Override
-  public final Fields getTermVectors(int docID) throws IOException {
+  public final TermVectors termVectors() throws IOException {
     ensureOpen();
-    final int i = readerIndex(docID); // find subreader num
-    return subReaders[i].getTermVectors(docID - starts[i]); // dispatch to subreader
+    TermVectors[] subVectors = new TermVectors[subReaders.length];
+    return new TermVectors() {
+      @Override
+      public void prefetch(int docID) throws IOException {
+        final int i = readerIndex(docID); // find subreader num
+        if (subVectors[i] == null) {
+          subVectors[i] = subReaders[i].termVectors();
+        }
+        subVectors[i].prefetch(docID - starts[i]);
+      }
+
+      @Override
+      public Fields get(int docID) throws IOException {
+        final int i = readerIndex(docID); // find subreader num
+        // dispatch to subreader, reusing if possible
+        if (subVectors[i] == null) {
+          subVectors[i] = subReaders[i].termVectors();
+        }
+        return subVectors[i].get(docID - starts[i]);
+      }
+    };
   }
 
   @Override
@@ -138,10 +168,29 @@ public abstract class BaseCompositeReader<R extends IndexReader> extends Composi
   }
 
   @Override
-  public final void document(int docID, StoredFieldVisitor visitor) throws IOException {
+  public final StoredFields storedFields() throws IOException {
     ensureOpen();
-    final int i = readerIndex(docID); // find subreader num
-    subReaders[i].document(docID - starts[i], visitor); // dispatch to subreader
+    StoredFields[] subFields = new StoredFields[subReaders.length];
+    return new StoredFields() {
+      @Override
+      public void prefetch(int docID) throws IOException {
+        final int i = readerIndex(docID); // find subreader num
+        if (subFields[i] == null) {
+          subFields[i] = subReaders[i].storedFields();
+        }
+        subFields[i].prefetch(docID - starts[i]);
+      }
+
+      @Override
+      public void document(int docID, StoredFieldVisitor visitor) throws IOException {
+        final int i = readerIndex(docID); // find subreader num
+        // dispatch to subreader, reusing if possible
+        if (subFields[i] == null) {
+          subFields[i] = subReaders[i].storedFields();
+        }
+        subFields[i].document(docID - starts[i], visitor);
+      }
+    };
   }
 
   @Override

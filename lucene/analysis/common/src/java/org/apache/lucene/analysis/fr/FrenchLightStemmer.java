@@ -59,9 +59,9 @@ import static org.apache.lucene.analysis.util.StemmerUtil.*;
  * <p>This stemmer implements the "UniNE" algorithm in: <i>Light Stemming Approaches for the French,
  * Portuguese, German and Hungarian Languages</i> Jacques Savoy
  */
-public class FrenchLightStemmer {
+class FrenchLightStemmer {
 
-  public int stem(char s[], int len) {
+  int stem(char[] s, int len) {
     if (len > 5 && s[len - 1] == 'x') {
       if (s[len - 3] == 'a' && s[len - 2] == 'u' && s[len - 4] != 'e') s[len - 2] = 'l';
       len--;
@@ -209,7 +209,7 @@ public class FrenchLightStemmer {
     return norm(s, len);
   }
 
-  private int norm(char s[], int len) {
+  private int norm(char[] s, int len) {
     if (len > 4) {
       for (int i = 0; i < len; i++)
         switch (s[i]) {

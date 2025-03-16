@@ -29,9 +29,9 @@ import static org.apache.lucene.codecs.lucene90.compressing.Lucene90CompressingT
 import static org.apache.lucene.codecs.lucene90.compressing.Lucene90CompressingTermVectorsWriter.VERSION_CURRENT;
 import static org.apache.lucene.codecs.lucene90.compressing.Lucene90CompressingTermVectorsWriter.VERSION_START;
 
-import java.io.Closeable;
 import java.io.IOException;
-import java.util.Collection;
+import java.nio.ByteBuffer;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.NoSuchElementException;
@@ -53,17 +53,22 @@ import org.apache.lucene.index.Terms;
 import org.apache.lucene.index.TermsEnum;
 import org.apache.lucene.store.AlreadyClosedException;
 import org.apache.lucene.store.ByteArrayDataInput;
+import org.apache.lucene.store.ByteBuffersDataInput;
+import org.apache.lucene.store.ByteBuffersDataOutput;
 import org.apache.lucene.store.ChecksumIndexInput;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.IOContext;
 import org.apache.lucene.store.IndexInput;
-import org.apache.lucene.util.Accountable;
-import org.apache.lucene.util.Accountables;
+import org.apache.lucene.store.RandomAccessInput;
+import org.apache.lucene.store.ReadAdvice;
 import org.apache.lucene.util.ArrayUtil;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.IOUtils;
+import org.apache.lucene.util.LongValues;
 import org.apache.lucene.util.LongsRef;
 import org.apache.lucene.util.packed.BlockPackedReaderIterator;
+import org.apache.lucene.util.packed.DirectReader;
+import org.apache.lucene.util.packed.DirectWriter;
 import org.apache.lucene.util.packed.PackedInts;
 
 /**
@@ -71,8 +76,10 @@ import org.apache.lucene.util.packed.PackedInts;
  *
  * @lucene.experimental
  */
-public final class Lucene90CompressingTermVectorsReader extends TermVectorsReader
-    implements Closeable {
+public final class Lucene90CompressingTermVectorsReader extends TermVectorsReader {
+
+  private static final int PREFETCH_CACHE_SIZE = 1 << 4;
+  private static final int PREFETCH_CACHE_MASK = PREFETCH_CACHE_SIZE - 1;
 
   private final FieldInfos fieldInfos;
   final FieldsIndex indexReader;
@@ -85,9 +92,16 @@ public final class Lucene90CompressingTermVectorsReader extends TermVectorsReade
   private final int numDocs;
   private boolean closed;
   private final BlockPackedReaderIterator reader;
+  private final long numChunks; // number of written blocks
   private final long numDirtyChunks; // number of incomplete compressed blocks written
-  private final long numDirtyDocs; // cumulative number of missing docs in incomplete chunks
+  private final long numDirtyDocs; // cumulative number of docs in incomplete chunks
   private final long maxPointer; // end of the data section
+  private BlockState blockState = new BlockState(-1, -1, 0);
+  // Cache of recently prefetched block IDs. This helps reduce chances of prefetching the same block
+  // multiple times, which is otherwise likely due to index sorting or recursive graph bisection
+  // clustering similar documents together. NOTE: this cache must be small since it's fully scanned.
+  private final long[] prefetchedBlockIDCache;
+  private int prefetchedBlockIDCacheIndex;
 
   // used by clone
   private Lucene90CompressingTermVectorsReader(Lucene90CompressingTermVectorsReader reader) {
@@ -102,9 +116,12 @@ public final class Lucene90CompressingTermVectorsReader extends TermVectorsReade
     this.reader =
         new BlockPackedReaderIterator(vectorsStream, packedIntsVersion, PACKED_BLOCK_SIZE, 0);
     this.version = reader.version;
+    this.numChunks = reader.numChunks;
     this.numDirtyChunks = reader.numDirtyChunks;
     this.numDirtyDocs = reader.numDirtyDocs;
     this.maxPointer = reader.maxPointer;
+    this.prefetchedBlockIDCache = new long[PREFETCH_CACHE_SIZE];
+    Arrays.fill(prefetchedBlockIDCache, -1);
     this.closed = false;
   }
 
@@ -129,7 +146,7 @@ public final class Lucene90CompressingTermVectorsReader extends TermVectorsReade
       // Open the data file
       final String vectorsStreamFN =
           IndexFileNames.segmentFileName(segment, segmentSuffix, VECTORS_EXTENSION);
-      vectorsStream = d.openInput(vectorsStreamFN, context);
+      vectorsStream = d.openInput(vectorsStreamFN, context.withReadAdvice(ReadAdvice.RANDOM));
       version =
           CodecUtil.checkIndexHeader(
               vectorsStream, formatName, VERSION_START, VERSION_CURRENT, si.getId(), segmentSuffix);
@@ -138,7 +155,7 @@ public final class Lucene90CompressingTermVectorsReader extends TermVectorsReade
 
       final String metaStreamFN =
           IndexFileNames.segmentFileName(segment, segmentSuffix, VECTORS_META_EXTENSION);
-      metaIn = d.openChecksumInput(metaStreamFN, IOContext.READONCE);
+      metaIn = d.openChecksumInput(metaStreamFN);
       CodecUtil.checkIndexHeader(
           metaIn,
           VECTORS_INDEX_CODEC_NAME + "Meta",
@@ -164,22 +181,50 @@ public final class Lucene90CompressingTermVectorsReader extends TermVectorsReade
               VECTORS_INDEX_EXTENSION,
               VECTORS_INDEX_CODEC_NAME,
               si.getId(),
-              metaIn);
+              metaIn,
+              context);
 
       this.indexReader = fieldsIndexReader;
       this.maxPointer = fieldsIndexReader.getMaxPointer();
 
+      numChunks = metaIn.readVLong();
       numDirtyChunks = metaIn.readVLong();
       numDirtyDocs = metaIn.readVLong();
+
+      if (numChunks < numDirtyChunks) {
+        throw new CorruptIndexException(
+            "Cannot have more dirty chunks than chunks: numChunks="
+                + numChunks
+                + ", numDirtyChunks="
+                + numDirtyChunks,
+            metaIn);
+      }
+      if ((numDirtyChunks == 0) != (numDirtyDocs == 0)) {
+        throw new CorruptIndexException(
+            "Cannot have dirty chunks without dirty docs or vice-versa: numDirtyChunks="
+                + numDirtyChunks
+                + ", numDirtyDocs="
+                + numDirtyDocs,
+            metaIn);
+      }
+      if (numDirtyDocs < numDirtyChunks) {
+        throw new CorruptIndexException(
+            "Cannot have more dirty chunks than documents within dirty chunks: numDirtyChunks="
+                + numDirtyChunks
+                + ", numDirtyDocs="
+                + numDirtyDocs,
+            metaIn);
+      }
 
       decompressor = compressionMode.newDecompressor();
       this.reader =
           new BlockPackedReaderIterator(vectorsStream, packedIntsVersion, PACKED_BLOCK_SIZE, 0);
 
-      if (metaIn != null) {
-        CodecUtil.checkFooter(metaIn, null);
-        metaIn.close();
-      }
+      CodecUtil.checkFooter(metaIn, null);
+      metaIn.close();
+
+      this.prefetchedBlockIDCache = new long[PREFETCH_CACHE_SIZE];
+      Arrays.fill(prefetchedBlockIDCache, -1);
 
       success = true;
     } catch (Throwable t) {
@@ -242,11 +287,22 @@ public final class Lucene90CompressingTermVectorsReader extends TermVectorsReade
     return numDirtyChunks;
   }
 
+  long getNumChunks() {
+    if (version != VERSION_CURRENT) {
+      throw new IllegalStateException(
+          "getNumChunks should only ever get called when the reader is on the current version");
+    }
+    assert numChunks >= 0;
+    return numChunks;
+  }
+
   int getNumDocs() {
     return numDocs;
   }
 
-  /** @throws AlreadyClosedException if this TermVectorsReader is closed */
+  /**
+   * @throws AlreadyClosedException if this TermVectorsReader is closed
+   */
   private void ensureOpen() throws AlreadyClosedException {
     if (closed) {
       throw new AlreadyClosedException("this FieldsReader is closed");
@@ -267,24 +323,64 @@ public final class Lucene90CompressingTermVectorsReader extends TermVectorsReade
   }
 
   @Override
+  public TermVectorsReader getMergeInstance() {
+    return new Lucene90CompressingTermVectorsReader(this);
+  }
+
+  private static RandomAccessInput slice(IndexInput in) throws IOException {
+    final int length = in.readVInt();
+    final byte[] bytes = new byte[length];
+    in.readBytes(bytes, 0, length);
+    return new ByteBuffersDataInput(Collections.singletonList(ByteBuffer.wrap(bytes)));
+  }
+
+  /** Checks if a given docID was loaded in the current block state. */
+  boolean isLoaded(int docID) {
+    return blockState.docBase <= docID && docID < blockState.docBase + blockState.chunkDocs;
+  }
+
+  private record BlockState(long startPointer, int docBase, int chunkDocs) {}
+
+  @Override
+  public void prefetch(int docID) throws IOException {
+    final long blockID = indexReader.getBlockID(docID);
+
+    for (long prefetchedBlockID : prefetchedBlockIDCache) {
+      if (prefetchedBlockID == blockID) {
+        return;
+      }
+    }
+
+    final long blockStartPointer = indexReader.getBlockStartPointer(blockID);
+    final long blockLength = indexReader.getBlockLength(blockID);
+    vectorsStream.prefetch(blockStartPointer, blockLength);
+
+    prefetchedBlockIDCache[prefetchedBlockIDCacheIndex++ & PREFETCH_CACHE_MASK] = blockID;
+  }
+
+  @Override
   public Fields get(int doc) throws IOException {
     ensureOpen();
 
     // seek to the right place
-    {
-      final long startPointer = indexReader.getStartPointer(doc);
-      vectorsStream.seek(startPointer);
+    final long startPointer;
+    if (isLoaded(doc)) {
+      startPointer = blockState.startPointer; // avoid searching the start pointer
+    } else {
+      startPointer = indexReader.getStartPointer(doc);
     }
+    vectorsStream.seek(startPointer);
 
     // decode
     // - docBase: first doc ID of the chunk
     // - chunkDocs: number of docs of the chunk
     final int docBase = vectorsStream.readVInt();
-    final int chunkDocs = vectorsStream.readVInt();
+    final int chunkDocs = vectorsStream.readVInt() >>> 1;
     if (doc < docBase || doc >= docBase + chunkDocs || docBase + chunkDocs > numDocs) {
       throw new CorruptIndexException(
           "docBase=" + docBase + ",chunkDocs=" + chunkDocs + ",doc=" + doc, vectorsStream);
     }
+    this.blockState = new BlockState(startPointer, docBase, chunkDocs);
 
     final int skip; // number of fields to skip
     final int numFields; // number of fields of the document we're looking for
@@ -339,38 +435,25 @@ public final class Lucene90CompressingTermVectorsReader extends TermVectorsReade
 
     // read field numbers and flags
     final int[] fieldNumOffs = new int[numFields];
-    final PackedInts.Reader flags;
+    final LongValues flags;
     {
-      final int bitsPerOff = PackedInts.bitsRequired(fieldNums.length - 1);
-      final PackedInts.Reader allFieldNumOffs =
-          PackedInts.getReaderNoHeader(
-              vectorsStream, PackedInts.Format.PACKED, packedIntsVersion, totalFields, bitsPerOff);
+      final int bitsPerOff = DirectWriter.bitsRequired(fieldNums.length - 1);
+      final LongValues allFieldNumOffs = DirectReader.getInstance(slice(vectorsStream), bitsPerOff);
       switch (vectorsStream.readVInt()) {
         case 0:
-          final PackedInts.Reader fieldFlags =
-              PackedInts.getReaderNoHeader(
-                  vectorsStream,
-                  PackedInts.Format.PACKED,
-                  packedIntsVersion,
-                  fieldNums.length,
-                  FLAGS_BITS);
-          PackedInts.Mutable f = PackedInts.getMutable(totalFields, FLAGS_BITS, PackedInts.COMPACT);
+          final LongValues fieldFlags = DirectReader.getInstance(slice(vectorsStream), FLAGS_BITS);
+          final ByteBuffersDataOutput out = new ByteBuffersDataOutput();
+          final DirectWriter writer = DirectWriter.getInstance(out, totalFields, FLAGS_BITS);
           for (int i = 0; i < totalFields; ++i) {
             final int fieldNumOff = (int) allFieldNumOffs.get(i);
             assert fieldNumOff >= 0 && fieldNumOff < fieldNums.length;
-            final int fgs = (int) fieldFlags.get(fieldNumOff);
-            f.set(i, fgs);
+            writer.add(fieldFlags.get(fieldNumOff));
           }
-          flags = f;
+          writer.finish();
+          flags = DirectReader.getInstance(out.toDataInput(), FLAGS_BITS);
           break;
         case 1:
-          flags =
-              PackedInts.getReaderNoHeader(
-                  vectorsStream,
-                  PackedInts.Format.PACKED,
-                  packedIntsVersion,
-                  totalFields,
-                  FLAGS_BITS);
+          flags = DirectReader.getInstance(slice(vectorsStream), FLAGS_BITS);
           break;
         default:
           throw new AssertionError();
@@ -381,17 +464,11 @@ public final class Lucene90CompressingTermVectorsReader extends TermVectorsReade
     }
 
     // number of terms per field for all fields
-    final PackedInts.Reader numTerms;
+    final LongValues numTerms;
     final int totalTerms;
     {
       final int bitsRequired = vectorsStream.readVInt();
-      numTerms =
-          PackedInts.getReaderNoHeader(
-              vectorsStream,
-              PackedInts.Format.PACKED,
-              packedIntsVersion,
-              totalFields,
-              bitsRequired);
+      numTerms = DirectReader.getInstance(slice(vectorsStream), bitsRequired);
       int sum = 0;
       for (int i = 0; i < totalFields; ++i) {
         sum += numTerms.get(i);
@@ -682,8 +759,7 @@ public final class Lucene90CompressingTermVectorsReader extends TermVectorsReade
   }
 
   // field -> term index -> position index
-  private int[][] positionIndex(
-      int skip, int numFields, PackedInts.Reader numTerms, int[] termFreqs) {
+  private int[][] positionIndex(int skip, int numFields, LongValues numTerms, int[] termFreqs) {
     final int[][] positionIndex = new int[numFields][];
     int termIndex = 0;
     for (int i = 0; i < skip; ++i) {
@@ -705,8 +781,8 @@ public final class Lucene90CompressingTermVectorsReader extends TermVectorsReade
   private int[][] readPositions(
       int skip,
       int numFields,
-      PackedInts.Reader flags,
-      PackedInts.Reader numTerms,
+      LongValues flags,
+      LongValues numTerms,
       int[] termFreqs,
       int flag,
       final int totalPositions,
@@ -1271,16 +1347,6 @@ public final class Lucene90CompressingTermVectorsReader extends TermVectorsReade
       sum += el;
     }
     return sum;
-  }
-
-  @Override
-  public long ramBytesUsed() {
-    return indexReader.ramBytesUsed();
-  }
-
-  @Override
-  public Collection<Accountable> getChildResources() {
-    return Collections.singleton(Accountables.namedAccountable("term vector index", indexReader));
   }
 
   @Override

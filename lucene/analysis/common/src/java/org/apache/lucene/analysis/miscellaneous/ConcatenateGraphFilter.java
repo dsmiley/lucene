@@ -58,7 +58,7 @@ public final class ConcatenateGraphFilter extends TokenStream {
   /** Represents the default separator between tokens. */
   public static final int SEP_LABEL = TokenStreamToAutomaton.POS_SEP;
 
-  public static final int DEFAULT_MAX_GRAPH_EXPANSIONS = Operations.DEFAULT_MAX_DETERMINIZED_STATES;
+  public static final int DEFAULT_MAX_GRAPH_EXPANSIONS = Operations.DEFAULT_DETERMINIZE_WORK_LIMIT;
   public static final Character DEFAULT_TOKEN_SEPARATOR = SEP_LABEL;
   public static final boolean DEFAULT_PRESERVE_SEP = true;
   public static final boolean DEFAULT_PRESERVE_POSITION_INCREMENTS = true;
@@ -147,6 +147,9 @@ public final class ConcatenateGraphFilter extends TokenStream {
     super.reset();
     // we only capture this if we really need it to save the UTF-8 to UTF-16 conversion
     charTermAttribute = getAttribute(CharTermAttribute.class); // may return null
+    // make sure the TermToBytesRefAttribute attribute is implemented by our class, not via
+    // CharTermAttribute's
+    assert getAttribute(TermToBytesRefAttribute.class) instanceof BytesRefBuilderTermAttributeImpl;
     wasReset = true;
   }
 
@@ -347,8 +350,9 @@ public final class ConcatenateGraphFilter extends TokenStream {
    *
    * @lucene.internal
    */
+  @SuppressWarnings("unused") // do not warn/error on redundant interface
   public static final class BytesRefBuilderTermAttributeImpl extends AttributeImpl
-      implements BytesRefBuilderTermAttribute, TermToBytesRefAttribute {
+      implements BytesRefBuilderTermAttribute, TermToBytesRefAttribute /*required*/ {
     private final BytesRefBuilder bytes = new BytesRefBuilder();
     private transient CharsRefBuilder charsRef;
 

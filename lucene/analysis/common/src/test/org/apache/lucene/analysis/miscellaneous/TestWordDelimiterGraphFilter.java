@@ -36,12 +36,8 @@ import java.util.List;
 import java.util.Random;
 import java.util.Set;
 import org.apache.lucene.analysis.Analyzer;
-import org.apache.lucene.analysis.BaseTokenStreamTestCase;
-import org.apache.lucene.analysis.CannedTokenStream;
 import org.apache.lucene.analysis.CharArraySet;
-import org.apache.lucene.analysis.MockTokenizer;
 import org.apache.lucene.analysis.StopFilter;
-import org.apache.lucene.analysis.Token;
 import org.apache.lucene.analysis.TokenFilter;
 import org.apache.lucene.analysis.TokenStream;
 import org.apache.lucene.analysis.Tokenizer;
@@ -49,8 +45,12 @@ import org.apache.lucene.analysis.core.KeywordTokenizer;
 import org.apache.lucene.analysis.en.EnglishAnalyzer;
 import org.apache.lucene.analysis.tokenattributes.CharTermAttribute;
 import org.apache.lucene.analysis.tokenattributes.PositionIncrementAttribute;
+import org.apache.lucene.tests.analysis.BaseTokenStreamTestCase;
+import org.apache.lucene.tests.analysis.CannedTokenStream;
+import org.apache.lucene.tests.analysis.MockTokenizer;
+import org.apache.lucene.tests.analysis.Token;
+import org.apache.lucene.tests.util.TestUtil;
 import org.apache.lucene.util.IOUtils;
-import org.apache.lucene.util.TestUtil;
 
 /**
  * New WordDelimiterGraphFilter tests... most of the tests are in ConvertedLegacyTest TODO: should
@@ -798,16 +798,6 @@ public class TestWordDelimiterGraphFilter extends BaseTokenStreamTestCase {
 
   private static boolean has(int flags, int flag) {
     return (flags & flag) != 0;
-  }
-
-  private static boolean isEnglishPossessive(String text, int pos) {
-    if (pos > 2) {
-      if ((text.charAt(pos - 1) == 's' || text.charAt(pos - 1) == 'S')
-          && (pos == text.length() || text.charAt(pos) != '-')) {
-        text = text.substring(0, text.length() - 2);
-      }
-    }
-    return true;
   }
 
   private static class WordPart {

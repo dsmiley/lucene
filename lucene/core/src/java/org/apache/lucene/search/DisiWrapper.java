@@ -16,7 +16,7 @@
  */
 package org.apache.lucene.search;
 
-import org.apache.lucene.search.spans.Spans;
+import java.util.Objects;
 
 /**
  * Wrapper used in {@link DisiPriorityQueue}.
@@ -26,6 +26,7 @@ import org.apache.lucene.search.spans.Spans;
 public class DisiWrapper {
   public final DocIdSetIterator iterator;
   public final Scorer scorer;
+  public final Scorable scorable;
   public final long cost;
   public final float matchCost; // the match cost for two-phase iterators, 0 otherwise
   public int doc; // the current doc, used for comparison
@@ -39,17 +40,19 @@ public class DisiWrapper {
   public final TwoPhaseIterator twoPhaseView;
 
   // For WANDScorer
-  long maxScore;
+  long scaledMaxScore;
 
-  // FOR SPANS
-  public final Spans spans;
-  public int lastApproxMatchDoc; // last doc of approximation that did match
-  public int lastApproxNonMatchDoc; // last doc of approximation that did not match
+  // for MaxScoreBulkScorer
+  float maxWindowScore;
 
-  public DisiWrapper(Scorer scorer) {
-    this.scorer = scorer;
-    this.spans = null;
-    this.iterator = scorer.iterator();
+  public DisiWrapper(Scorer scorer, boolean impacts) {
+    this.scorer = Objects.requireNonNull(scorer);
+    this.scorable = ScorerUtil.likelyTermScorer(scorer);
+    if (impacts) {
+      this.iterator = ScorerUtil.likelyImpactsEnum(scorer.iterator());
+    } else {
+      this.iterator = scorer.iterator();
+    }
     this.cost = iterator.cost();
     this.doc = -1;
     this.twoPhaseView = scorer.twoPhaseIterator();
@@ -61,24 +64,5 @@ public class DisiWrapper {
       approximation = iterator;
       matchCost = 0f;
     }
-  }
-
-  public DisiWrapper(Spans spans) {
-    this.scorer = null;
-    this.spans = spans;
-    this.iterator = spans;
-    this.cost = iterator.cost();
-    this.doc = -1;
-    this.twoPhaseView = spans.asTwoPhaseIterator();
-
-    if (twoPhaseView != null) {
-      approximation = twoPhaseView.approximation();
-      matchCost = twoPhaseView.matchCost();
-    } else {
-      approximation = iterator;
-      matchCost = 0f;
-    }
-    this.lastApproxNonMatchDoc = -2;
-    this.lastApproxMatchDoc = -2;
   }
 }

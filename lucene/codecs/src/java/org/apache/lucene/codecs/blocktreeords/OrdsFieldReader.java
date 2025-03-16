@@ -16,9 +16,9 @@
  */
 package org.apache.lucene.codecs.blocktreeords;
 
+import static org.apache.lucene.util.fst.FST.readMetadata;
+
 import java.io.IOException;
-import java.util.Collection;
-import java.util.Collections;
 import org.apache.lucene.codecs.blocktreeords.FSTOrdsOutputs.Output;
 import org.apache.lucene.index.FieldInfo;
 import org.apache.lucene.index.IndexOptions;
@@ -26,14 +26,12 @@ import org.apache.lucene.index.Terms;
 import org.apache.lucene.index.TermsEnum;
 import org.apache.lucene.store.ByteArrayDataInput;
 import org.apache.lucene.store.IndexInput;
-import org.apache.lucene.util.Accountable;
-import org.apache.lucene.util.Accountables;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.automaton.CompiledAutomaton;
 import org.apache.lucene.util.fst.FST;
 
 /** BlockTree's implementation of {@link Terms}. */
-final class OrdsFieldReader extends Terms implements Accountable {
+final class OrdsFieldReader extends Terms {
   final long numTerms;
   final FieldInfo fieldInfo;
   final long sumTotalTermFreq;
@@ -47,6 +45,7 @@ final class OrdsFieldReader extends Terms implements Accountable {
   final OrdsBlockTreeTermsReader parent;
 
   final FST<Output> index;
+
   // private boolean DEBUG;
 
   OrdsFieldReader(
@@ -80,7 +79,8 @@ final class OrdsFieldReader extends Terms implements Accountable {
     // }
 
     rootBlockFP =
-        (new ByteArrayDataInput(rootCode.bytes.bytes, rootCode.bytes.offset, rootCode.bytes.length))
+        (new ByteArrayDataInput(
+                    rootCode.bytes().bytes, rootCode.bytes().offset, rootCode.bytes().length))
                 .readVLong()
             >>> OrdsBlockTreeTermsWriter.OUTPUT_FLAGS_NUM_BITS;
 
@@ -88,7 +88,7 @@ final class OrdsFieldReader extends Terms implements Accountable {
       final IndexInput clone = indexIn.clone();
       // System.out.println("start=" + indexStartFP + " field=" + fieldInfo.name);
       clone.seek(indexStartFP);
-      index = new FST<>(clone, clone, OrdsBlockTreeTermsWriter.FST_OUTPUTS);
+      index = new FST<>(readMetadata(clone, OrdsBlockTreeTermsWriter.FST_OUTPUTS), clone);
 
       /*
       if (true) {
@@ -178,20 +178,6 @@ final class OrdsFieldReader extends Terms implements Accountable {
       throw new IllegalArgumentException("please use CompiledAutomaton.getTermsEnum instead");
     }
     return new OrdsIntersectTermsEnum(this, compiled, startTerm);
-  }
-
-  @Override
-  public long ramBytesUsed() {
-    return ((index != null) ? index.ramBytesUsed() : 0);
-  }
-
-  @Override
-  public Collection<Accountable> getChildResources() {
-    if (index == null) {
-      return Collections.emptyList();
-    } else {
-      return Collections.singleton(Accountables.namedAccountable("term index", index));
-    }
   }
 
   @Override

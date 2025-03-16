@@ -25,7 +25,6 @@ import org.apache.lucene.store.DataOutput;
 import org.apache.lucene.store.IndexInput;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.IntsRefBuilder;
-import org.apache.lucene.util.RamUsageEstimator;
 import org.apache.lucene.util.fst.BytesRefFSTEnum;
 import org.apache.lucene.util.fst.FST;
 import org.apache.lucene.util.fst.FSTCompiler;
@@ -51,18 +50,10 @@ import org.apache.lucene.util.fst.Util;
  */
 public class FSTDictionary implements IndexDictionary {
 
-  private static final long BASE_RAM_USAGE =
-      RamUsageEstimator.shallowSizeOfInstance(FSTDictionary.class);
-
   protected final FST<Long> fst;
 
   protected FSTDictionary(FST<Long> fst) {
     this.fst = fst;
-  }
-
-  @Override
-  public long ramBytesUsed() {
-    return BASE_RAM_USAGE + fst.ramBytesUsed();
   }
 
   @Override
@@ -98,10 +89,16 @@ public class FSTDictionary implements IndexDictionary {
       isFSTOnHeap = true;
     }
     PositiveIntOutputs fstOutputs = PositiveIntOutputs.getSingleton();
-    FST<Long> fst =
-        isFSTOnHeap
-            ? new FST<>(fstDataInput, fstDataInput, fstOutputs)
-            : new FST<>(fstDataInput, fstDataInput, fstOutputs, new OffHeapFSTStore());
+    FST.FSTMetadata<Long> metadata = FST.readMetadata(fstDataInput, fstOutputs);
+    FST<Long> fst;
+    if (isFSTOnHeap) {
+      fst = new FST<>(metadata, fstDataInput);
+    } else {
+      final IndexInput indexInput = (IndexInput) fstDataInput;
+      fst =
+          FST.fromFSTReader(
+              metadata, new OffHeapFSTStore(indexInput, indexInput.getFilePointer(), metadata));
+    }
     return new FSTDictionary(fst);
   }
 
@@ -168,11 +165,6 @@ public class FSTDictionary implements IndexDictionary {
       }
       return dictionary.browser();
     }
-
-    @Override
-    public long ramBytesUsed() {
-      return dictionary == null ? 0 : dictionary.ramBytesUsed();
-    }
   }
 
   /**
@@ -185,9 +177,9 @@ public class FSTDictionary implements IndexDictionary {
     protected final FSTCompiler<Long> fstCompiler;
     protected final IntsRefBuilder scratchInts;
 
-    public Builder() {
+    public Builder() throws IOException {
       PositiveIntOutputs outputs = PositiveIntOutputs.getSingleton();
-      fstCompiler = new FSTCompiler<>(FST.INPUT_TYPE.BYTE1, outputs);
+      fstCompiler = new FSTCompiler.Builder<>(FST.INPUT_TYPE.BYTE1, outputs).build();
       scratchInts = new IntsRefBuilder();
     }
 
@@ -198,7 +190,8 @@ public class FSTDictionary implements IndexDictionary {
 
     @Override
     public FSTDictionary build() throws IOException {
-      return new FSTDictionary(fstCompiler.compile());
+      return new FSTDictionary(
+          FST.fromFSTReader(fstCompiler.compile(), fstCompiler.getFSTReader()));
     }
   }
 }

@@ -19,10 +19,11 @@ package org.apache.lucene.util.automaton;
 import static org.apache.lucene.util.automaton.TestFiniteStringsIterator.getFiniteStrings;
 
 import java.util.List;
+import org.apache.lucene.tests.util.LuceneTestCase;
+import org.apache.lucene.tests.util.TestUtil;
+import org.apache.lucene.tests.util.automaton.AutomatonTestUtil;
 import org.apache.lucene.util.IntsRef;
 import org.apache.lucene.util.IntsRefBuilder;
-import org.apache.lucene.util.LuceneTestCase;
-import org.apache.lucene.util.TestUtil;
 import org.apache.lucene.util.fst.Util;
 
 /** Test for {@link FiniteStringsIterator}. */
@@ -39,9 +40,11 @@ public class TestLimitedFiniteStringsIterator extends LuceneTestCase {
         getFiniteStrings(new LimitedFiniteStringsIterator(a, TestUtil.nextInt(random(), 1, 1000)));
         // NOTE: cannot do this, because the method is not
         // guaranteed to detect cycles when you have a limit
-        // assertTrue(Operations.isFinite(a));
-      } catch (IllegalArgumentException iae) {
-        assertFalse(Operations.isFinite(a));
+        // assertTrue(AutomatonTestUtil.isFinite(a));
+      } catch (
+          @SuppressWarnings("unused")
+          IllegalArgumentException iae) {
+        assertFalse(AutomatonTestUtil.isFinite(a));
       }
     }
   }
@@ -75,7 +78,7 @@ public class TestLimitedFiniteStringsIterator extends LuceneTestCase {
   }
 
   public void testLimit() {
-    Automaton a = Operations.union(Automata.makeString("foo"), Automata.makeString("bar"));
+    Automaton a = Operations.union(List.of(Automata.makeString("foo"), Automata.makeString("bar")));
 
     // Test without limit
     FiniteStringsIterator withoutLimit = new LimitedFiniteStringsIterator(a, -1);
@@ -87,7 +90,7 @@ public class TestLimitedFiniteStringsIterator extends LuceneTestCase {
   }
 
   public void testSize() {
-    Automaton a = Operations.union(Automata.makeString("foo"), Automata.makeString("bar"));
+    Automaton a = Operations.union(List.of(Automata.makeString("foo"), Automata.makeString("bar")));
     LimitedFiniteStringsIterator iterator = new LimitedFiniteStringsIterator(a, -1);
     List<IntsRef> actual = getFiniteStrings(iterator);
     assertEquals(2, actual.size());

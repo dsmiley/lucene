@@ -17,16 +17,18 @@
 package org.apache.lucene.index;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Iterator;
 import org.apache.lucene.codecs.DocValuesProducer;
 import org.apache.lucene.codecs.FieldsProducer;
+import org.apache.lucene.codecs.KnnVectorsReader;
 import org.apache.lucene.codecs.NormsProducer;
 import org.apache.lucene.codecs.PointsReader;
 import org.apache.lucene.codecs.StoredFieldsReader;
 import org.apache.lucene.codecs.TermVectorsReader;
-import org.apache.lucene.codecs.VectorReader;
+import org.apache.lucene.search.KnnCollector;
 import org.apache.lucene.util.Bits;
 
 /**
@@ -77,7 +79,7 @@ public final class SlowCodecReaderWrapper {
         }
 
         @Override
-        public VectorReader getVectorReader() {
+        public KnnVectorsReader getVectorReader() {
           reader.ensureOpen();
           return readerToVectorReader(reader);
         }
@@ -155,19 +157,31 @@ public final class SlowCodecReaderWrapper {
 
       @Override
       public void close() {}
-
-      @Override
-      public long ramBytesUsed() {
-        return 0;
-      }
     };
   }
 
-  private static VectorReader readerToVectorReader(LeafReader reader) {
-    return new VectorReader() {
+  private static KnnVectorsReader readerToVectorReader(LeafReader reader) {
+    return new KnnVectorsReader() {
       @Override
-      public VectorValues getVectorValues(String field) throws IOException {
-        return reader.getVectorValues(field);
+      public FloatVectorValues getFloatVectorValues(String field) throws IOException {
+        return reader.getFloatVectorValues(field);
+      }
+
+      @Override
+      public ByteVectorValues getByteVectorValues(String field) throws IOException {
+        return reader.getByteVectorValues(field);
+      }
+
+      @Override
+      public void search(String field, float[] target, KnnCollector knnCollector, Bits acceptDocs)
+          throws IOException {
+        reader.searchNearestVectors(field, target, knnCollector, acceptDocs);
+      }
+
+      @Override
+      public void search(String field, byte[] target, KnnCollector knnCollector, Bits acceptDocs)
+          throws IOException {
+        reader.searchNearestVectors(field, target, knnCollector, acceptDocs);
       }
 
       @Override
@@ -177,11 +191,6 @@ public final class SlowCodecReaderWrapper {
 
       @Override
       public void close() {}
-
-      @Override
-      public long ramBytesUsed() {
-        return 0L;
-      }
     };
   }
 
@@ -200,11 +209,6 @@ public final class SlowCodecReaderWrapper {
 
       @Override
       public void close() {}
-
-      @Override
-      public long ramBytesUsed() {
-        return 0;
-      }
     };
   }
 
@@ -237,25 +241,36 @@ public final class SlowCodecReaderWrapper {
       }
 
       @Override
+      public DocValuesSkipper getSkipper(FieldInfo field) throws IOException {
+        return reader.getDocValuesSkipper(field.name);
+      }
+
+      @Override
       public void checkIntegrity() throws IOException {
         // We already checkIntegrity the entire reader up front
       }
 
       @Override
       public void close() {}
-
-      @Override
-      public long ramBytesUsed() {
-        return 0;
-      }
     };
   }
 
   private static StoredFieldsReader readerToStoredFieldsReader(final LeafReader reader) {
+    final StoredFields storedFields;
+    try {
+      storedFields = reader.storedFields();
+    } catch (IOException e) {
+      throw new UncheckedIOException(e);
+    }
     return new StoredFieldsReader() {
       @Override
-      public void visitDocument(int docID, StoredFieldVisitor visitor) throws IOException {
-        reader.document(docID, visitor);
+      public void prefetch(int docID) throws IOException {
+        storedFields.prefetch(docID);
+      }
+
+      @Override
+      public void document(int docID, StoredFieldVisitor visitor) throws IOException {
+        storedFields.document(docID, visitor);
       }
 
       @Override
@@ -270,19 +285,25 @@ public final class SlowCodecReaderWrapper {
 
       @Override
       public void close() {}
-
-      @Override
-      public long ramBytesUsed() {
-        return 0;
-      }
     };
   }
 
   private static TermVectorsReader readerToTermVectorsReader(final LeafReader reader) {
+    final TermVectors termVectors;
+    try {
+      termVectors = reader.termVectors();
+    } catch (IOException e) {
+      throw new UncheckedIOException(e);
+    }
     return new TermVectorsReader() {
       @Override
+      public void prefetch(int docID) throws IOException {
+        termVectors.prefetch(docID);
+      }
+
+      @Override
       public Fields get(int docID) throws IOException {
-        return reader.getTermVectors(docID);
+        return termVectors.get(docID);
       }
 
       @Override
@@ -297,11 +318,6 @@ public final class SlowCodecReaderWrapper {
 
       @Override
       public void close() {}
-
-      @Override
-      public long ramBytesUsed() {
-        return 0;
-      }
     };
   }
 
@@ -336,11 +352,6 @@ public final class SlowCodecReaderWrapper {
 
       @Override
       public void close() {}
-
-      @Override
-      public long ramBytesUsed() {
-        return 0;
-      }
     };
   }
 }

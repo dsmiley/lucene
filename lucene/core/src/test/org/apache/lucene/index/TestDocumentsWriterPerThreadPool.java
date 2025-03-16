@@ -22,7 +22,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicLong;
 import org.apache.lucene.store.AlreadyClosedException;
 import org.apache.lucene.store.Directory;
-import org.apache.lucene.util.LuceneTestCase;
+import org.apache.lucene.tests.util.LuceneTestCase;
 import org.apache.lucene.util.Version;
 
 public class TestDocumentsWriterPerThreadPool extends LuceneTestCase {
@@ -59,7 +59,7 @@ public class TestDocumentsWriterPerThreadPool extends LuceneTestCase {
       assertEquals(1, pool.size());
       pool.marksAsFreeAndUnlock(second);
       assertEquals(1, pool.size());
-      for (DocumentsWriterPerThread lastPerThead : pool.filterAndLock(x -> true)) {
+      for (DocumentsWriterPerThread lastPerThead : pool.filterAndLock(_ -> true)) {
         pool.checkout(lastPerThead);
         lastPerThead.unlock();
       }
@@ -93,7 +93,9 @@ public class TestDocumentsWriterPerThreadPool extends LuceneTestCase {
                   latch.countDown();
                   pool.getAndLock();
                   fail();
-                } catch (AlreadyClosedException e) {
+                } catch (
+                    @SuppressWarnings("unused")
+                    AlreadyClosedException e) {
                   // fine
                 }
               });
@@ -105,7 +107,7 @@ public class TestDocumentsWriterPerThreadPool extends LuceneTestCase {
       first.unlock();
       pool.close();
       pool.unlockNewWriters();
-      for (DocumentsWriterPerThread perThread : pool.filterAndLock(x -> true)) {
+      for (DocumentsWriterPerThread perThread : pool.filterAndLock(_ -> true)) {
         assertTrue(pool.checkout(perThread));
         perThread.unlock();
       }

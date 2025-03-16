@@ -50,7 +50,7 @@ public final class MultiFields extends Fields {
   @SuppressWarnings({"unchecked", "rawtypes"})
   @Override
   public Iterator<String> iterator() {
-    Iterator<String> subIterators[] = new Iterator[subs.length];
+    Iterator<String>[] subIterators = new Iterator[subs.length];
     for (int i = 0; i < subs.length; i++) {
       subIterators[i] = subs[i].iterator();
     }
@@ -75,11 +75,7 @@ public final class MultiFields extends Fields {
         slices2.add(subSlices[i]);
       }
     }
-    if (subs2.size() == 0) {
-      result = null;
-      // don't cache this case with an unbounded cache, since the number of fields that don't exist
-      // is unbounded.
-    } else {
+    if (subs2.size() != 0) {
       result =
           new MultiTerms(
               subs2.toArray(Terms.EMPTY_ARRAY), slices2.toArray(ReaderSlice.EMPTY_ARRAY));

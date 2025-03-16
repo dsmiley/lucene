@@ -16,6 +16,8 @@
  */
 package org.apache.lucene.util;
 
+import org.apache.lucene.tests.util.LuceneTestCase;
+
 /**
  * Estimates how {@link RamUsageEstimator} estimates physical memory consumption of Java objects.
  */
@@ -92,7 +94,9 @@ public class TestStressRamUsageEstimator extends LuceneTestCase {
           seg[i] = new byte[random().nextInt(7)];
         }
       }
-    } catch (OutOfMemoryError e) {
+    } catch (
+        @SuppressWarnings("unused")
+        OutOfMemoryError e) {
       // Release and quit.
     }
   }

@@ -18,8 +18,6 @@ package org.apache.lucene.search.similarities;
 
 import java.util.ArrayList;
 import java.util.List;
-import org.apache.lucene.index.FieldInvertState;
-import org.apache.lucene.index.IndexOptions;
 import org.apache.lucene.search.CollectionStatistics;
 import org.apache.lucene.search.Explanation;
 import org.apache.lucene.search.IndexSearcher;
@@ -74,10 +72,10 @@ import org.apache.lucene.util.SmallFloat;
  *      <table class="padding2" style="border-spacing: 2px; border-collapse: separate; border: 0; margin-left:auto; margin-right:auto">
  *        <caption>cosine similarity formula</caption>
  *        <tr>
- *          <td valign="middle" style="text-align: right" rowspan="1">
+ *          <td style="vertical-align: middle; text-align: right" rowspan="1">
  *            cosine-similarity(q,d) &nbsp; = &nbsp;
  *          </td>
- *          <td valign="middle" style="text-align: center">
+ *          <td style="vertical-align: middle; text-align: center">
  *            <table>
  *               <caption>cosine similarity formula</caption>
  *               <tr><td style="text-align: center"><small>V(q)&nbsp;&middot;&nbsp;V(d)</small></td></tr>
@@ -144,11 +142,11 @@ import org.apache.lucene.util.SmallFloat;
  *      <table class="padding2" style="border-spacing: 2px; border-collapse: separate; border: 0; margin-left:auto; margin-right:auto">
  *        <caption>formatting only</caption>
  *        <tr>
- *          <td valign="middle" style="text-align: right" rowspan="1">
+ *          <td style="vertical-align: middle; text-align: right" rowspan="1">
  *            score(q,d) &nbsp; = &nbsp;
  *            <span style="color: #CCCC00">query-boost(q)</span> &middot; &nbsp;
  *          </td>
- *          <td valign="middle" style="text-align: center">
+ *          <td style="vertical-align: middle; text-align: center">
  *            <table>
  *               <caption>Lucene conceptual scoring formula</caption>
  *               <tr><td style="text-align: center"><small><span style="color: #993399">V(q)&nbsp;&middot;&nbsp;V(d)</span></small></td></tr>
@@ -156,7 +154,7 @@ import org.apache.lucene.util.SmallFloat;
  *               <tr><td style="text-align: center"><small><span style="color: #FF33CC">|V(q)|</span></small></td></tr>
  *            </table>
  *          </td>
- *          <td valign="middle" style="text-align: right" rowspan="1">
+ *          <td style="vertical-align: middle; text-align: right" rowspan="1">
  *            &nbsp; &middot; &nbsp; <span style="color: #3399FF">doc-len-norm(d)</span>
  *            &nbsp; &middot; &nbsp; <span style="color: #3399FF">doc-boost(d)</span>
  *          </td>
@@ -220,11 +218,11 @@ import org.apache.lucene.util.SmallFloat;
  *   <table class="padding2" style="border-spacing: 2px; border-collapse: separate; border: 0; margin-left:auto; margin-right:auto">
  *   <caption>Lucene conceptual scoring formula</caption>
  *   <tr>
- *     <td valign="middle" style="text-align: right" rowspan="1">
+ *     <td style="vertical-align: middle; text-align: right" rowspan="1">
  *       score(q,d) &nbsp; = &nbsp;
  *       <span style="font-size: larger">&sum;</span>
  *     </td>
- *     <td valign="middle" style="text-align: right" rowspan="1">
+ *     <td style="vertical-align: middle; text-align: right" rowspan="1">
  *       <span style="font-size: larger">(</span>
  *       <A HREF="#formula_tf"><span style="color: #993399">tf(t in d)</span></A> &nbsp;&middot;&nbsp;
  *       <A HREF="#formula_idf"><span style="color: #993399">idf(t)</span></A><sup>2</sup> &nbsp;&middot;&nbsp;
@@ -233,7 +231,7 @@ import org.apache.lucene.util.SmallFloat;
  *       <span style="font-size: larger">)</span>
  *     </td>
  *   </tr>
- *   <tr valign="top">
+ *   <tr style="vertical-align: top">
  *    <td></td>
  *    <td style="text-align: center"><small>t in q</small></td>
  *    <td></td>
@@ -263,10 +261,10 @@ import org.apache.lucene.util.SmallFloat;
  *       <table class="padding2" style="border-spacing: 2px; border-collapse: separate; border: 0; width:auto; margin-left:auto; margin-right:auto">
  *        <caption>term frequency computation</caption>
  *        <tr>
- *          <td valign="middle" style="text-align: right" rowspan="1">
+ *          <td style="vertical-align: middle; text-align: right" rowspan="1">
  *            {@link org.apache.lucene.search.similarities.ClassicSimilarity#tf(float) tf(t in d)} &nbsp; = &nbsp;
  *          </td>
- *          <td valign="top" style="text-align: center" rowspan="1">
+ *          <td style="vertical-align: top; text-align: center" rowspan="1">
  *               frequency<sup><span style="font-size: larger">&frac12;</span></sup>
  *          </td>
  *        </tr>
@@ -284,13 +282,13 @@ import org.apache.lucene.util.SmallFloat;
  *       <table class="padding2" style="border-spacing: 2px; border-collapse: separate; border: 0; width:auto; margin-left:auto; margin-right:auto">
  *        <caption>inverse document frequency computation</caption>
  *        <tr>
- *          <td valign="middle" style="text-align: right">
+ *          <td style="vertical-align: middle; text-align: right">
  *            {@link org.apache.lucene.search.similarities.ClassicSimilarity#idf(long, long) idf(t)}&nbsp; = &nbsp;
  *          </td>
- *          <td valign="middle" style="text-align: center">
+ *          <td style="vertical-align: middle; text-align: center">
  *            1 + log <span style="font-size: larger">(</span>
  *          </td>
- *          <td valign="middle" style="text-align: center">
+ *          <td style="vertical-align: middle; text-align: center">
  *            <table>
  *               <caption>inverse document frequency computation</caption>
  *               <tr><td style="text-align: center"><small>docCount+1</small></td></tr>
@@ -298,7 +296,7 @@ import org.apache.lucene.util.SmallFloat;
  *               <tr><td style="text-align: center"><small>docFreq+1</small></td></tr>
  *            </table>
  *          </td>
- *          <td valign="middle" style="text-align: center">
+ *          <td style="vertical-align: middle; text-align: center">
  *            <span style="font-size: larger">)</span>
  *          </td>
  *        </tr>
@@ -326,33 +324,14 @@ import org.apache.lucene.util.SmallFloat;
  */
 public abstract class TFIDFSimilarity extends Similarity {
 
-  /** Sole constructor. (For invocation by subclass constructors, typically implicit.) */
-  public TFIDFSimilarity() {}
-
-  /**
-   * True if overlap tokens (tokens with a position of increment of zero) are discounted from the
-   * document's length.
-   */
-  protected boolean discountOverlaps = true;
-
-  /**
-   * Determines whether overlap tokens (Tokens with 0 position increment) are ignored when computing
-   * norm. By default this is true, meaning overlap tokens do not count when computing norms.
-   *
-   * @lucene.experimental
-   * @see #computeNorm
-   */
-  public void setDiscountOverlaps(boolean v) {
-    discountOverlaps = v;
+  /** Default constructor: parameter-free */
+  public TFIDFSimilarity() {
+    super();
   }
 
-  /**
-   * Returns true if overlap tokens are discounted from the document's length.
-   *
-   * @see #setDiscountOverlaps
-   */
-  public boolean getDiscountOverlaps() {
-    return discountOverlaps;
+  /** Primary constructor. */
+  public TFIDFSimilarity(boolean discountOverlaps) {
+    super(discountOverlaps);
   }
 
   /**
@@ -410,7 +389,7 @@ public abstract class TFIDFSimilarity extends Similarity {
    * @return an Explain object that includes both an idf score factor for the phrase and an
    *     explanation for each term.
    */
-  public Explanation idfExplain(CollectionStatistics collectionStats, TermStatistics termStats[]) {
+  public Explanation idfExplain(CollectionStatistics collectionStats, TermStatistics[] termStats) {
     double idf = 0d; // sum into a double before casting into a float
     List<Explanation> subs = new ArrayList<>();
     for (final TermStatistics stat : termStats) {
@@ -438,23 +417,19 @@ public abstract class TFIDFSimilarity extends Similarity {
   /**
    * Compute an index-time normalization value for this field instance.
    *
-   * @param length the number of terms in the field, optionally {@link #setDiscountOverlaps(boolean)
+   * @param length the number of terms in the field, optionally {@link #getDiscountOverlaps()
    *     discounting overlaps}
    * @return a length normalization value
    */
   public abstract float lengthNorm(int length);
 
-  @Override
-  public final long computeNorm(FieldInvertState state) {
-    final int numTerms;
-    if (state.getIndexOptions() == IndexOptions.DOCS && state.getIndexCreatedVersionMajor() >= 8) {
-      numTerms = state.getUniqueTermCount();
-    } else if (discountOverlaps) {
-      numTerms = state.getLength() - state.getNumOverlap();
-    } else {
-      numTerms = state.getLength();
+  /** Cache of decoded bytes. */
+  private static final int[] LENGTH_TABLE = new int[256];
+
+  static {
+    for (int i = 0; i < 256; i++) {
+      LENGTH_TABLE[i] = SmallFloat.byte4ToInt((byte) i);
     }
-    return SmallFloat.intToByte4(numTerms);
   }
 
   @Override
@@ -466,8 +441,7 @@ public abstract class TFIDFSimilarity extends Similarity {
             : idfExplain(collectionStats, termStats);
     float[] normTable = new float[256];
     for (int i = 1; i < 256; ++i) {
-      int length = SmallFloat.byte4ToInt((byte) i);
-      float norm = lengthNorm(length);
+      float norm = lengthNorm(LENGTH_TABLE[i]);
       normTable[i] = norm;
     }
     normTable[0] = 1f / normTable[255];

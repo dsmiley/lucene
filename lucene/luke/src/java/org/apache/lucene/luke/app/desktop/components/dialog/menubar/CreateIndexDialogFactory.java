@@ -35,6 +35,8 @@ import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import javax.swing.BorderFactory;
 import javax.swing.BoxLayout;
 import javax.swing.JButton;
@@ -47,7 +49,6 @@ import javax.swing.JSeparator;
 import javax.swing.JTextArea;
 import javax.swing.JTextField;
 import javax.swing.SwingWorker;
-import org.apache.logging.log4j.Logger;
 import org.apache.lucene.luke.app.IndexHandler;
 import org.apache.lucene.luke.app.desktop.Preferences;
 import org.apache.lucene.luke.app.desktop.PreferencesFactory;
@@ -70,6 +71,7 @@ public class CreateIndexDialogFactory implements DialogOpener.DialogFactory {
 
   private static final Logger log = LoggerFactory.getLogger(MethodHandles.lookup().lookupClass());
 
+  @SuppressWarnings("NonFinalStaticField")
   private static CreateIndexDialogFactory instance;
 
   private final Preferences prefs;
@@ -144,7 +146,7 @@ public class CreateIndexDialogFactory implements DialogOpener.DialogFactory {
     createBtn.addActionListener(listeners::createIndex);
 
     cancelBtn.setText(MessageUtils.getLocalizedMessage("button.cancel"));
-    cancelBtn.addActionListener(e -> dialog.dispose());
+    cancelBtn.addActionListener(_ -> dialog.dispose());
   }
 
   @Override
@@ -332,11 +334,13 @@ public class CreateIndexDialogFactory implements DialogOpener.DialogFactory {
                           }
                         });
                     Files.deleteIfExists(path);
-                  } catch (IOException ex2) {
+                  } catch (
+                      @SuppressWarnings("unused")
+                      IOException ex2) {
                   }
 
-                  log.error("Cannot create index", ex);
-                  String message = "See Logs tab or log file for more details.";
+                  log.log(Level.SEVERE, "Cannot create index", ex);
+                  String message = "See Logs tab for more details.";
                   JOptionPane.showMessageDialog(
                       dialog, message, "Cannot create index", JOptionPane.ERROR_MESSAGE);
                 } finally {

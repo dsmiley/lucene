@@ -60,6 +60,17 @@ class FlagEnumerator {
     return new Lookup(result);
   }
 
+  static boolean hasFlagInSortedArray(char flag, char[] array, int start, int length) {
+    if (flag == Dictionary.FLAG_UNSET) return false;
+
+    for (int i = start; i < start + length; i++) {
+      char c = array[i];
+      if (c == flag) return true;
+      if (c > flag) return false;
+    }
+    return false;
+  }
+
   static class Lookup {
     private final char[] data;
 
@@ -68,15 +79,37 @@ class FlagEnumerator {
     }
 
     boolean hasFlag(int entryId, char flag) {
-      if (entryId < 0 || flag == Dictionary.FLAG_UNSET) return false;
+      return entryId >= 0 && hasFlagInSortedArray(flag, data, entryId + 1, data[entryId]);
+    }
 
+    boolean hasAnyFlag(int entryId, char[] sortedFlags) {
       int length = data[entryId];
-      for (int i = entryId + 1; i < entryId + 1 + length; i++) {
-        char c = data[i];
-        if (c == flag) return true;
-        if (c > flag) return false;
+      if (length == 0) return false;
+
+      int pos1 = entryId + 1;
+      int limit1 = entryId + 1 + length;
+
+      int pos2 = 0;
+      int limit2 = sortedFlags.length;
+
+      char c1 = data[pos1];
+      char c2 = sortedFlags[pos2];
+      while (true) {
+        if (c1 == c2) {
+          return true;
+        }
+        if (c1 < c2) {
+          if (++pos1 >= limit1) {
+            return false;
+          }
+          c1 = data[pos1];
+        } else {
+          if (++pos2 >= limit2) {
+            return false;
+          }
+          c2 = sortedFlags[pos2];
+        }
       }
-      return false;
     }
 
     char[] getFlags(int entryId) {

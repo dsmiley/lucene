@@ -29,7 +29,7 @@ import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.IOContext;
 import org.apache.lucene.store.IndexInput;
 import org.apache.lucene.store.IndexOutput;
-import org.apache.lucene.util.LuceneTestCase;
+import org.apache.lucene.tests.util.LuceneTestCase;
 import org.apache.lucene.util.StringHelper;
 
 /** tests for codecutil methods */
@@ -117,7 +117,7 @@ public class TestCodecUtil extends LuceneTestCase {
               CodecUtil.checkFooter(input, mine);
             });
     assertEquals("fake exception", expected.getMessage());
-    Throwable suppressed[] = expected.getSuppressed();
+    Throwable[] suppressed = expected.getSuppressed();
     assertEquals(1, suppressed.length);
     assertTrue(suppressed[0].getMessage().contains("checksum passed"));
     input.close();
@@ -143,7 +143,7 @@ public class TestCodecUtil extends LuceneTestCase {
               CodecUtil.checkFooter(input, mine);
             });
     assertEquals("fake exception", expected.getMessage());
-    Throwable suppressed[] = expected.getSuppressed();
+    Throwable[] suppressed = expected.getSuppressed();
     assertEquals(1, suppressed.length);
     assertTrue(suppressed[0].getMessage().contains("checksum passed"));
     input.close();
@@ -171,7 +171,7 @@ public class TestCodecUtil extends LuceneTestCase {
               CodecUtil.checkFooter(input, mine);
             });
     assertTrue(expected.getMessage().contains("checksum status indeterminate"));
-    Throwable suppressed[] = expected.getSuppressed();
+    Throwable[] suppressed = expected.getSuppressed();
     assertEquals(1, suppressed.length);
     assertEquals("fake exception", suppressed[0].getMessage());
     input.close();
@@ -182,9 +182,9 @@ public class TestCodecUtil extends LuceneTestCase {
     IndexOutput output = new ByteBuffersIndexOutput(out, "temp", "temp");
     CodecUtil.writeHeader(output, "FooBar", 5);
     output.writeString("this is the data");
-    output.writeInt(CodecUtil.FOOTER_MAGIC);
-    output.writeInt(0);
-    output.writeLong(1234567); // write a bogus checksum
+    CodecUtil.writeBEInt(output, CodecUtil.FOOTER_MAGIC);
+    CodecUtil.writeBEInt(output, 0);
+    CodecUtil.writeBELong(output, 1234567); // write a bogus checksum
     output.close();
 
     ChecksumIndexInput input =
@@ -199,7 +199,7 @@ public class TestCodecUtil extends LuceneTestCase {
               CodecUtil.checkFooter(input, mine);
             });
     assertTrue(expected.getMessage().contains("checksum failed"));
-    Throwable suppressed[] = expected.getSuppressed();
+    Throwable[] suppressed = expected.getSuppressed();
     assertEquals(1, suppressed.length);
     assertEquals("fake exception", suppressed[0].getMessage());
     input.close();
@@ -265,10 +265,10 @@ public class TestCodecUtil extends LuceneTestCase {
   public void testReadBogusCRC() throws Exception {
     ByteBuffersDataOutput out = new ByteBuffersDataOutput();
     IndexOutput output = new ByteBuffersIndexOutput(out, "temp", "temp");
-    output.writeLong(-1L); // bad
-    output.writeLong(1L << 32); // bad
-    output.writeLong(-(1L << 32)); // bad
-    output.writeLong((1L << 32) - 1); // ok
+    CodecUtil.writeBELong(output, -1L); // bad
+    CodecUtil.writeBELong(output, 1L << 32); // bad
+    CodecUtil.writeBELong(output, -(1L << 32)); // bad);
+    CodecUtil.writeBELong(output, (1L << 32) - 1); // ok
     output.close();
     IndexInput input =
         new BufferedChecksumIndexInput(new ByteBuffersIndexInput(out.toDataInput(), "temp"));

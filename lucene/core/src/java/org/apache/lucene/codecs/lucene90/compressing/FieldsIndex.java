@@ -18,12 +18,22 @@ package org.apache.lucene.codecs.lucene90.compressing;
 
 import java.io.Closeable;
 import java.io.IOException;
-import org.apache.lucene.util.Accountable;
 
-abstract class FieldsIndex implements Accountable, Cloneable, Closeable {
+abstract class FieldsIndex implements Cloneable, Closeable {
 
-  /** Get the start pointer for the block that contains the given docID. */
-  abstract long getStartPointer(int docID);
+  /** Get the ID of the block that contains the given docID. */
+  abstract long getBlockID(int docID);
+
+  /** Get the start pointer of the block with the given ID. */
+  abstract long getBlockStartPointer(long blockID);
+
+  /** Get the number of bytes of the block with the given ID. */
+  abstract long getBlockLength(long blockID);
+
+  /** Get the start pointer of the block that contains the given docID. */
+  final long getStartPointer(int docID) {
+    return getBlockStartPointer(getBlockID(docID));
+  }
 
   /** Check the integrity of the index. */
   abstract void checkIntegrity() throws IOException;

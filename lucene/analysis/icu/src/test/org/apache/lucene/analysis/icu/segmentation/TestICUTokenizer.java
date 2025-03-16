@@ -24,16 +24,16 @@ import java.util.Arrays;
 import java.util.Random;
 import java.util.concurrent.CountDownLatch;
 import org.apache.lucene.analysis.Analyzer;
-import org.apache.lucene.analysis.BaseTokenStreamTestCase;
 import org.apache.lucene.analysis.TokenStream;
 import org.apache.lucene.analysis.Tokenizer;
 import org.apache.lucene.analysis.icu.tokenattributes.ScriptAttribute;
+import org.apache.lucene.tests.analysis.BaseTokenStreamTestCase;
 
 public class TestICUTokenizer extends BaseTokenStreamTestCase {
 
   public void testHugeDoc() throws IOException {
     StringBuilder sb = new StringBuilder();
-    char whitespace[] = new char[4094];
+    char[] whitespace = new char[4094];
     Arrays.fill(whitespace, ' ');
     sb.append(whitespace);
     sb.append("testing 1234");
@@ -53,10 +53,10 @@ public class TestICUTokenizer extends BaseTokenStreamTestCase {
     ICUTokenizer tokenizer =
         new ICUTokenizer(newAttributeFactory(), new DefaultICUTokenizerConfig(false, true));
     tokenizer.setReader(new StringReader(input));
-    char token[] = new char[4096];
+    char[] token = new char[4096];
     Arrays.fill(token, 'a');
     String expectedToken = new String(token);
-    String expected[] = {
+    String[] expected = {
       expectedToken, expectedToken, expectedToken,
       expectedToken, expectedToken, expectedToken,
       expectedToken, expectedToken, expectedToken,
@@ -547,7 +547,7 @@ public class TestICUTokenizer extends BaseTokenStreamTestCase {
   public void testICUConcurrency() throws Exception {
     int numThreads = 8;
     final CountDownLatch startingGun = new CountDownLatch(1);
-    Thread threads[] = new Thread[numThreads];
+    Thread[] threads = new Thread[numThreads];
     for (int i = 0; i < threads.length; i++) {
       threads[i] =
           new Thread() {
@@ -581,5 +581,20 @@ public class TestICUTokenizer extends BaseTokenStreamTestCase {
     for (int i = 0; i < threads.length; i++) {
       threads[i].join();
     }
+  }
+
+  /** test use of http://www.unicode.org/reports/tr24/#Script_Extensions */
+  public void testScriptExtensions() throws Exception {
+    assertAnalyzesTo(a, "𑅗०", new String[] {"𑅗०"});
+  }
+
+  /** don't change scripts for category Mc */
+  public void testScriptSpacingMark() throws Exception {
+    assertAnalyzesTo(a, "𑅗ा", new String[] {"𑅗ा"});
+  }
+
+  /** don't change scripts for category Me */
+  public void testScriptEnclosingMark() throws Exception {
+    assertAnalyzesTo(a, "𑅗᪾", new String[] {"𑅗᪾"});
   }
 }

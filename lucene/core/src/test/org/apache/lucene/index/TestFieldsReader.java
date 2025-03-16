@@ -19,9 +19,9 @@ package org.apache.lucene.index;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.file.Path;
-import java.util.*;
+import java.util.HashMap;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
-import org.apache.lucene.analysis.MockAnalyzer;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.DocumentStoredFieldVisitor;
 import org.apache.lucene.document.Field;
@@ -31,7 +31,9 @@ import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.FilterDirectory;
 import org.apache.lucene.store.IOContext;
 import org.apache.lucene.store.IndexInput;
-import org.apache.lucene.util.LuceneTestCase;
+import org.apache.lucene.tests.analysis.MockAnalyzer;
+import org.apache.lucene.tests.index.DocHelper;
+import org.apache.lucene.tests.util.LuceneTestCase;
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
 
@@ -43,16 +45,30 @@ public class TestFieldsReader extends LuceneTestCase {
   @BeforeClass
   public static void beforeClass() throws Exception {
     testDoc = new Document();
-    fieldInfos = new FieldInfos.Builder(new FieldInfos.FieldNumbers(null));
+    fieldInfos = new FieldInfos.Builder(new FieldInfos.FieldNumbers(null, null));
     DocHelper.setupDoc(testDoc);
     for (IndexableField field : testDoc.getFields()) {
-      FieldInfo fieldInfo = fieldInfos.getOrAdd(field.name());
       IndexableFieldType ift = field.fieldType();
-      fieldInfo.setIndexOptions(ift.indexOptions());
-      if (ift.omitNorms()) {
-        fieldInfo.setOmitsNorms();
-      }
-      fieldInfo.setDocValuesType(ift.docValuesType());
+      fieldInfos.add(
+          new FieldInfo(
+              field.name(),
+              -1,
+              false,
+              ift.omitNorms(),
+              false,
+              ift.indexOptions(),
+              ift.docValuesType(),
+              ift.docValuesSkipIndexType(),
+              -1,
+              new HashMap<>(),
+              0,
+              0,
+              0,
+              0,
+              VectorEncoding.FLOAT32,
+              VectorSimilarityFunction.EUCLIDEAN,
+              false,
+              false));
     }
     dir = newDirectory();
     IndexWriterConfig conf =
@@ -75,7 +91,7 @@ public class TestFieldsReader extends LuceneTestCase {
     assertTrue(dir != null);
     assertTrue(fieldInfos != null);
     IndexReader reader = DirectoryReader.open(dir);
-    Document doc = reader.document(0);
+    Document doc = reader.storedFields().document(0);
     assertTrue(doc != null);
     assertTrue(doc.getField(DocHelper.TEXT_FIELD_1_KEY) != null);
 
@@ -99,7 +115,7 @@ public class TestFieldsReader extends LuceneTestCase {
     assertTrue(field.fieldType().indexOptions() == IndexOptions.DOCS);
 
     DocumentStoredFieldVisitor visitor = new DocumentStoredFieldVisitor(DocHelper.TEXT_FIELD_3_KEY);
-    reader.document(0, visitor);
+    reader.storedFields().document(0, visitor);
     final List<IndexableField> fields = visitor.getDocument().getFields();
     assertEquals(1, fields.size());
     assertEquals(DocHelper.TEXT_FIELD_3_KEY, fields.get(0).name());
@@ -199,16 +215,21 @@ public class TestFieldsReader extends LuceneTestCase {
 
     boolean exc = false;
 
+    StoredFields storedFields = reader.storedFields();
     for (int i = 0; i < 2; i++) {
       try {
-        reader.document(i);
-      } catch (IOException ioe) {
+        storedFields.document(i);
+      } catch (
+          @SuppressWarnings("unused")
+          IOException ioe) {
         // expected
         exc = true;
       }
       try {
-        reader.document(i);
-      } catch (IOException ioe) {
+        storedFields.document(i);
+      } catch (
+          @SuppressWarnings("unused")
+          IOException ioe) {
         // expected
         exc = true;
       }

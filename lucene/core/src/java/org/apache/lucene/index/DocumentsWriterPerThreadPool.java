@@ -17,10 +17,8 @@
 package org.apache.lucene.index;
 
 import java.io.Closeable;
-import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Deque;
 import java.util.IdentityHashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -32,13 +30,13 @@ import org.apache.lucene.util.ThreadInterruptedException;
 
 /**
  * {@link DocumentsWriterPerThreadPool} controls {@link DocumentsWriterPerThread} instances and
- * their thread assignments during indexing. Each {@link DocumentsWriterPerThread} is once a
- * obtained from the pool exclusively used for indexing a single document or list of documents by
- * the obtaining thread. Each indexing thread must obtain such a {@link DocumentsWriterPerThread} to
+ * their thread assignments during indexing. Each {@link DocumentsWriterPerThread} is, once obtained
+ * from the pool, exclusively used for indexing a single document or list of documents by the
+ * obtaining thread. Each indexing thread must obtain such a {@link DocumentsWriterPerThread} to
  * make progress. Depending on the {@link DocumentsWriterPerThreadPool} implementation {@link
  * DocumentsWriterPerThread} assignments might differ from document to document.
  *
- * <p>Once a {@link DocumentsWriterPerThread} is selected for flush the {@link
+ * <p>Once a {@link DocumentsWriterPerThread} is selected for flush, the {@link
  * DocumentsWriterPerThread} will be checked out of the thread pool and won't be reused for
  * indexing. See {@link #checkout(DocumentsWriterPerThread)}.
  */
@@ -46,10 +44,11 @@ final class DocumentsWriterPerThreadPool implements Iterable<DocumentsWriterPerT
 
   private final Set<DocumentsWriterPerThread> dwpts =
       Collections.newSetFromMap(new IdentityHashMap<>());
-  private final Deque<DocumentsWriterPerThread> freeList = new ArrayDeque<>();
+  private final LockableConcurrentApproximatePriorityQueue<DocumentsWriterPerThread> freeList =
+      new LockableConcurrentApproximatePriorityQueue<>();
   private final Supplier<DocumentsWriterPerThread> dwptFactory;
   private int takenWriterPermits = 0;
-  private boolean closed;
+  private volatile boolean closed;
 
   DocumentsWriterPerThreadPool(Supplier<DocumentsWriterPerThread> dwptFactory) {
     this.dwptFactory = dwptFactory;
@@ -114,24 +113,17 @@ final class DocumentsWriterPerThreadPool implements Iterable<DocumentsWriterPerT
    * operation (add/updateDocument).
    */
   DocumentsWriterPerThread getAndLock() {
-    synchronized (this) {
-      ensureOpen();
-      // Important that we are LIFO here! This way if number of concurrent indexing threads was once
-      // high,
-      // but has now reduced, we only use a limited number of DWPTs. This also guarantees that if we
-      // have suddenly
-      // a single thread indexing
-      final Iterator<DocumentsWriterPerThread> descendingIterator = freeList.descendingIterator();
-      while (descendingIterator.hasNext()) {
-        DocumentsWriterPerThread perThread = descendingIterator.next();
-        if (perThread.tryLock()) {
-          descendingIterator.remove();
-          return perThread;
-        }
-      }
-      // DWPT is already locked before return by this method:
-      return newWriter();
+    ensureOpen();
+    DocumentsWriterPerThread dwpt = freeList.lockAndPoll();
+    if (dwpt != null) {
+      return dwpt;
     }
+
+    // newWriter() adds the DWPT to the `dwpts` set as a side-effect. However it is not added to
+    // `freeList` at this point, it will be added later on once DocumentsWriter has indexed a
+    // document into this DWPT and then gives it back to the pool by calling
+    // #marksAsFreeAndUnlock.
+    return newWriter();
   }
 
   private void ensureOpen() {
@@ -140,13 +132,24 @@ final class DocumentsWriterPerThreadPool implements Iterable<DocumentsWriterPerT
     }
   }
 
+  private synchronized boolean contains(DocumentsWriterPerThread state) {
+    return dwpts.contains(state);
+  }
+
   void marksAsFreeAndUnlock(DocumentsWriterPerThread state) {
-    synchronized (this) {
-      assert dwpts.contains(state)
-          : "we tried to add a DWPT back to the pool but the pool doesn't know aobut this DWPT";
-      freeList.add(state);
-    }
-    state.unlock();
+    final long ramBytesUsed = state.ramBytesUsed();
+    assert state.isFlushPending() == false
+            && state.isAborted() == false
+            && state.isQueueAdvanced() == false
+        : "DWPT has pending flush: "
+            + state.isFlushPending()
+            + " aborted="
+            + state.isAborted()
+            + " queueAdvanced="
+            + state.isQueueAdvanced();
+    assert contains(state)
+        : "we tried to add a DWPT back to the pool but the pool doesn't know about this DWPT";
+    freeList.addAndUnlock(state, ramBytesUsed);
   }
 
   @Override
@@ -184,6 +187,9 @@ final class DocumentsWriterPerThreadPool implements Iterable<DocumentsWriterPerT
    * @return <code>true</code> iff the given DWPT has been removed. Otherwise <code>false</code>
    */
   synchronized boolean checkout(DocumentsWriterPerThread perThread) {
+    // The DWPT must be held by the current thread. This guarantees that concurrent calls to
+    // #getAndLock cannot pull this DWPT out of the pool since #getAndLock does a DWPT#tryLock to
+    // check if the DWPT is available.
     assert perThread.isHeldByCurrentThread();
     if (dwpts.remove(perThread)) {
       freeList.remove(perThread);

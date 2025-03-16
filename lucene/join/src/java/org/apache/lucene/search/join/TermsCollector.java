@@ -17,7 +17,7 @@
 package org.apache.lucene.search.join;
 
 import java.io.IOException;
-import org.apache.lucene.index.BinaryDocValues;
+import org.apache.lucene.index.SortedDocValues;
 import org.apache.lucene.index.SortedSetDocValues;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.BytesRefHash;
@@ -50,7 +50,7 @@ abstract class TermsCollector<DV> extends DocValuesTermsCollector<DV> {
   static TermsCollector<?> create(String field, boolean multipleValuesPerDocument) {
     return multipleValuesPerDocument
         ? new MV(sortedSetDocValues(field))
-        : new SV(binaryDocValues(field));
+        : new SV(sortedDocValues(field));
   }
 
   // impl that works with multiple values per document
@@ -62,13 +62,12 @@ abstract class TermsCollector<DV> extends DocValuesTermsCollector<DV> {
 
     @Override
     public void collect(int doc) throws IOException {
-      long ord;
       if (doc > docValues.docID()) {
         docValues.advance(doc);
       }
       if (doc == docValues.docID()) {
-        while ((ord = docValues.nextOrd()) != SortedSetDocValues.NO_MORE_ORDS) {
-          final BytesRef term = docValues.lookupOrd(ord);
+        for (int i = 0; i < docValues.docValueCount(); i++) {
+          final BytesRef term = docValues.lookupOrd(docValues.nextOrd());
           collectorTerms.add(term);
         }
       }
@@ -76,9 +75,9 @@ abstract class TermsCollector<DV> extends DocValuesTermsCollector<DV> {
   }
 
   // impl that works with single value per document
-  static class SV extends TermsCollector<BinaryDocValues> {
+  static class SV extends TermsCollector<SortedDocValues> {
 
-    SV(Function<BinaryDocValues> docValuesCall) {
+    SV(Function<SortedDocValues> docValuesCall) {
       super(docValuesCall);
     }
 
@@ -86,7 +85,7 @@ abstract class TermsCollector<DV> extends DocValuesTermsCollector<DV> {
     public void collect(int doc) throws IOException {
       BytesRef term;
       if (docValues.advanceExact(doc)) {
-        term = docValues.binaryValue();
+        term = docValues.lookupOrd(docValues.ordValue());
       } else {
         term = new BytesRef(BytesRef.EMPTY_BYTES);
       }

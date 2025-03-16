@@ -113,12 +113,10 @@ class GeoComplexPolygon extends GeoBasePolygon {
         }
         if (lastEdge != null) {
           lastEdge.next = edge;
-          edge.previous = lastEdge;
         }
         lastEdge = edge;
         lastGeoPoint = thisGeoPoint;
       }
-      firstEdge.previous = lastEdge;
       lastEdge.next = firstEdge;
       shapeStartEdges[edgePointIndex] = firstEdge;
       edgePointIndex++;
@@ -750,7 +748,9 @@ class GeoComplexPolygon extends GeoBasePolygon {
       for (final TraversalStrategy ts : traversalStrategies) {
         try {
           return ts.apply(testPoint, testPointInSet, x, y, z);
-        } catch (IllegalArgumentException e) {
+        } catch (
+            @SuppressWarnings("unused")
+            IllegalArgumentException e) {
           // Continue
         }
       }
@@ -769,7 +769,7 @@ class GeoComplexPolygon extends GeoBasePolygon {
       final Plane p, final GeoPoint[] notablePoints, final Membership... bounds) {
     // Create the intersector
     final EdgeIterator intersector = new IntersectorEdgeIterator(p, notablePoints, bounds);
-    // First, compute the bounds for the the plane
+    // First, compute the bounds for the plane
     final XYZBounds xyzBounds = new XYZBounds();
     p.recordBounds(planetModel, xyzBounds, bounds);
     for (final GeoPoint point : notablePoints) {
@@ -806,7 +806,7 @@ class GeoComplexPolygon extends GeoBasePolygon {
   public boolean intersects(GeoShape geoShape) {
     // Create the intersector
     final EdgeIterator intersector = new IntersectorShapeIterator(geoShape);
-    // First, compute the bounds for the the plane
+    // First, compute the bounds for the plane
     final XYZBounds xyzBounds = new XYZBounds();
     geoShape.getBounds(xyzBounds);
 
@@ -897,7 +897,9 @@ class GeoComplexPolygon extends GeoBasePolygon {
       // System.out.println(" creating sector linear crossing edge iterator");
       return new SectorLinearCrossingEdgeIterator(
           testPoint, plane, abovePlane, belowPlane, thePointX, thePointY, thePointZ);
-    } catch (IllegalArgumentException e) {
+    } catch (
+        @SuppressWarnings("unused")
+        IllegalArgumentException e) {
       // Assume we failed because we could not construct bounding planes, so do it another way.
       // System.out.println(" create full linear crossing edge iterator");
       return new FullLinearCrossingEdgeIterator(
@@ -920,7 +922,6 @@ class GeoComplexPolygon extends GeoBasePolygon {
     public final SidedPlane backingPlane;
     public final Plane plane;
     public final XYZBounds planeBounds;
-    public Edge previous = null;
     public Edge next = null;
 
     public Edge(final PlanetModel pm, final GeoPoint startPoint, final GeoPoint endPoint) {
@@ -1060,7 +1061,9 @@ class GeoComplexPolygon extends GeoBasePolygon {
 
         // System.out.println(" Check point in set? " + rval);
         return rval;
-      } catch (IllegalArgumentException e) {
+      } catch (
+          @SuppressWarnings("unused")
+          IllegalArgumentException e) {
         // Intersection point apparently was on edge, so try another strategy
         // System.out.println(" Trying dual crossing edge iterator");
         final CountingEdgeIterator edgeIterator =
@@ -1117,12 +1120,12 @@ class GeoComplexPolygon extends GeoBasePolygon {
    * into the traversal method of a tree, and each edge that matches will cause this object to be
    * called.
    */
-  private static interface EdgeIterator {
+  private interface EdgeIterator {
     /**
      * @param edge is the edge that matched.
      * @return true if the iteration should continue, false otherwise.
      */
-    public boolean matches(final Edge edge);
+    boolean matches(final Edge edge);
   }
 
   /**
@@ -1130,12 +1133,16 @@ class GeoComplexPolygon extends GeoBasePolygon {
    * implementing this interface into the traversal method of a tree, and each edge that matches
    * will cause this object to be called.
    */
-  private static interface CountingEdgeIterator extends EdgeIterator {
-    /** @return the number of edges that were crossed. */
-    public int getCrossingCount();
+  private interface CountingEdgeIterator extends EdgeIterator {
+    /**
+     * @return the number of edges that were crossed.
+     */
+    int getCrossingCount();
 
-    /** @return true if the endpoint was on an edge. */
-    public boolean isOnEdge();
+    /**
+     * @return true if the endpoint was on an edge.
+     */
+    boolean isOnEdge();
   }
 
   /**
@@ -1189,8 +1196,6 @@ class GeoComplexPolygon extends GeoBasePolygon {
   /** An interface describing a tree. */
   private abstract static class Tree {
     private final Node rootNode;
-
-    protected static final Edge[] EMPTY_ARRAY = new Edge[0];
 
     /**
      * Constructor.
@@ -1283,7 +1288,6 @@ class GeoComplexPolygon extends GeoBasePolygon {
 
   /** This is the z-tree. */
   private static class ZTree extends Tree {
-    public Node rootNode = null;
 
     public ZTree(final List<Edge> allEdges) {
       super(allEdges);
@@ -1444,7 +1448,6 @@ class GeoComplexPolygon extends GeoBasePolygon {
   /** Count the number of verifiable edge crossings for a full 1/2 a world. */
   private class FullLinearCrossingEdgeIterator implements CountingEdgeIterator {
 
-    private final GeoPoint testPoint;
     private final Plane plane;
     private final Plane abovePlane;
     private final Plane belowPlane;
@@ -1468,7 +1471,6 @@ class GeoComplexPolygon extends GeoBasePolygon {
       assert plane.evaluateIsZero(thePointX, thePointY, thePointZ)
           : "Check point is not on travel plane";
       assert plane.evaluateIsZero(testPoint) : "Test point is not on travel plane";
-      this.testPoint = testPoint;
       this.plane = plane;
       this.abovePlane = abovePlane;
       this.belowPlane = belowPlane;
@@ -1573,7 +1575,6 @@ class GeoComplexPolygon extends GeoBasePolygon {
   /** Count the number of verifiable edge crossings for less than 1/2 a world. */
   private class SectorLinearCrossingEdgeIterator implements CountingEdgeIterator {
 
-    private final GeoPoint testPoint;
     private final Plane plane;
     private final Plane abovePlane;
     private final Plane belowPlane;
@@ -1598,7 +1599,6 @@ class GeoComplexPolygon extends GeoBasePolygon {
       assert plane.evaluateIsZero(thePointX, thePointY, thePointZ)
           : "Check point is not on travel plane";
       assert plane.evaluateIsZero(testPoint) : "Test point is not on travel plane";
-      this.testPoint = testPoint;
       this.plane = plane;
       this.abovePlane = abovePlane;
       this.belowPlane = belowPlane;
@@ -2305,11 +2305,13 @@ class GeoComplexPolygon extends GeoBasePolygon {
    * to numerical issues.
    */
   private static final double DELTA_DISTANCE = Vector.MINIMUM_RESOLUTION;
+
   /**
    * This is the maximum number of iterations. If we get this high, effectively the planes are
    * parallel, and we treat that as a crossing.
    */
   private static final int MAX_ITERATIONS = 100;
+
   /**
    * This is the amount off of the envelope plane that we count as "enough" for a valid crossing
    * assessment.

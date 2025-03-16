@@ -17,14 +17,17 @@
 
 package org.apache.lucene.spatial3d;
 
+import java.io.IOException;
 import org.apache.lucene.index.PointValues.IntersectVisitor;
 import org.apache.lucene.index.PointValues.Relation;
+import org.apache.lucene.search.DocIdSetIterator;
 import org.apache.lucene.spatial3d.geom.GeoArea;
 import org.apache.lucene.spatial3d.geom.GeoAreaFactory;
 import org.apache.lucene.spatial3d.geom.GeoShape;
 import org.apache.lucene.spatial3d.geom.PlanetModel.DocValueEncoder;
 import org.apache.lucene.spatial3d.geom.XYZBounds;
 import org.apache.lucene.util.DocIdSetBuilder;
+import org.apache.lucene.util.IntsRef;
 import org.apache.lucene.util.NumericUtils;
 
 class PointInShapeIntersectVisitor implements IntersectVisitor {
@@ -58,6 +61,16 @@ class PointInShapeIntersectVisitor implements IntersectVisitor {
   @Override
   public void visit(int docID) {
     adder.add(docID);
+  }
+
+  @Override
+  public void visit(DocIdSetIterator iterator) throws IOException {
+    adder.add(iterator);
+  }
+
+  @Override
+  public void visit(IntsRef ref) throws IOException {
+    adder.add(ref);
   }
 
   @Override

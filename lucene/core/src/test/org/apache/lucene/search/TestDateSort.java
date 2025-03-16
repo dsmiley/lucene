@@ -22,11 +22,11 @@ import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field;
 import org.apache.lucene.document.SortedDocValuesField;
 import org.apache.lucene.index.IndexReader;
-import org.apache.lucene.index.RandomIndexWriter;
+import org.apache.lucene.index.StoredFields;
 import org.apache.lucene.index.Term;
 import org.apache.lucene.store.Directory;
-import org.apache.lucene.util.BytesRef;
-import org.apache.lucene.util.LuceneTestCase;
+import org.apache.lucene.tests.index.RandomIndexWriter;
+import org.apache.lucene.tests.util.LuceneTestCase;
 
 /**
  * Test date sorting, i.e. auto-sorting of fields with type "long". See
@@ -80,8 +80,9 @@ public class TestDateSort extends LuceneTestCase {
     // Execute the search and process the search results.
     String[] actualOrder = new String[5];
     ScoreDoc[] hits = searcher.search(query, 1000, sort).scoreDocs;
+    StoredFields storedFields = searcher.storedFields();
     for (int i = 0; i < hits.length; i++) {
-      Document document = searcher.doc(hits[i].doc);
+      Document document = storedFields.document(hits[i].doc);
       String text = document.get(TEXT_FIELD);
       actualOrder[i] = text;
     }
@@ -108,7 +109,7 @@ public class TestDateSort extends LuceneTestCase {
     String dateTimeString = DateTools.timeToString(time, DateTools.Resolution.SECOND);
     Field dateTimeField = newStringField(DATE_TIME_FIELD, dateTimeString, Field.Store.YES);
     document.add(dateTimeField);
-    document.add(new SortedDocValuesField(DATE_TIME_FIELD, new BytesRef(dateTimeString)));
+    document.add(new SortedDocValuesField(DATE_TIME_FIELD, newBytesRef(dateTimeString)));
 
     return document;
   }

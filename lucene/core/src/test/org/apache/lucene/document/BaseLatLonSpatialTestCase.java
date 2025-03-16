@@ -22,15 +22,14 @@ import static org.apache.lucene.geo.GeoEncodingUtils.encodeLatitude;
 import static org.apache.lucene.geo.GeoEncodingUtils.encodeLatitudeCeil;
 import static org.apache.lucene.geo.GeoEncodingUtils.encodeLongitude;
 import static org.apache.lucene.geo.GeoEncodingUtils.encodeLongitudeCeil;
-import static org.apache.lucene.geo.GeoTestUtil.nextLatitude;
-import static org.apache.lucene.geo.GeoTestUtil.nextLongitude;
+import static org.apache.lucene.tests.geo.GeoTestUtil.nextLatitude;
+import static org.apache.lucene.tests.geo.GeoTestUtil.nextLongitude;
 
 import com.carrotsearch.randomizedtesting.generators.RandomPicks;
 import java.util.Arrays;
 import org.apache.lucene.document.ShapeField.QueryRelation;
 import org.apache.lucene.geo.Circle;
 import org.apache.lucene.geo.Component2D;
-import org.apache.lucene.geo.GeoTestUtil;
 import org.apache.lucene.geo.GeoUtils;
 import org.apache.lucene.geo.LatLonGeometry;
 import org.apache.lucene.geo.Line;
@@ -39,13 +38,16 @@ import org.apache.lucene.geo.Polygon;
 import org.apache.lucene.geo.Rectangle;
 import org.apache.lucene.geo.Tessellator;
 import org.apache.lucene.search.Query;
-import org.apache.lucene.util.TestUtil;
+import org.apache.lucene.tests.geo.GeoTestUtil;
+import org.apache.lucene.tests.util.TestUtil;
 
 /** Base test case for testing geospatial indexing and search functionality * */
 public abstract class BaseLatLonSpatialTestCase extends BaseSpatialTestCase {
 
+  @Override
   protected abstract ShapeType getShapeType();
 
+  @Override
   protected Object nextShape() {
     return getShapeType().nextShape();
   }
@@ -181,39 +183,41 @@ public abstract class BaseLatLonSpatialTestCase extends BaseSpatialTestCase {
   /** internal shape type for testing different shape types */
   protected enum ShapeType {
     POINT() {
+      @Override
       public Point nextShape() {
         return GeoTestUtil.nextPoint();
       }
     },
     LINE() {
+      @Override
       public Line nextShape() {
         return GeoTestUtil.nextLine();
       }
     },
     POLYGON() {
+      @Override
       public Polygon nextShape() {
         while (true) {
           Polygon p = GeoTestUtil.nextPolygon();
           try {
-            Tessellator.tessellate(p);
+            Tessellator.tessellate(p, random().nextBoolean());
             return p;
-          } catch (IllegalArgumentException e) {
+          } catch (
+              @SuppressWarnings("unused")
+              IllegalArgumentException e) {
             // if we can't tessellate; then random polygon generator created a malformed shape
           }
         }
       }
     },
     MIXED() {
+      @Override
       public Object nextShape() {
         return RandomPicks.randomFrom(random(), subList).nextShape();
       }
     };
 
-    static ShapeType[] subList;
-
-    static {
-      subList = new ShapeType[] {POINT, LINE, POLYGON};
-    }
+    private static final ShapeType[] subList = new ShapeType[] {POINT, LINE, POLYGON};
 
     public abstract Object nextShape();
   }

@@ -35,6 +35,7 @@ import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.IOContext;
 import org.apache.lucene.store.IndexInput;
 import org.apache.lucene.store.IndexOutput;
+import org.apache.lucene.store.ReadAdvice;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.BytesRefBuilder;
 import org.apache.lucene.util.StringHelper;
@@ -52,10 +53,10 @@ public class SimpleTextCompoundFormat extends CompoundFormat {
   public SimpleTextCompoundFormat() {}
 
   @Override
-  public CompoundDirectory getCompoundReader(Directory dir, SegmentInfo si, IOContext context)
-      throws IOException {
+  public CompoundDirectory getCompoundReader(Directory dir, SegmentInfo si) throws IOException {
     String dataFile = IndexFileNames.segmentFileName(si.name, "", DATA_EXTENSION);
-    final IndexInput in = dir.openInput(dataFile, context);
+    final IndexInput in =
+        dir.openInput(dataFile, IOContext.DEFAULT.withReadAdvice(ReadAdvice.NORMAL));
 
     BytesRefBuilder scratch = new BytesRefBuilder();
 
@@ -71,7 +72,7 @@ public class SimpleTextCompoundFormat extends CompoundFormat {
       tablePos = df.parse(stripPrefix(scratch, TABLEPOS)).longValue();
     } catch (ParseException e) {
       throw new CorruptIndexException(
-          "can't parse CFS trailer, got: " + scratch.get().utf8ToString(), in);
+          "can't parse CFS trailer, got: " + scratch.get().utf8ToString(), in, e);
     }
 
     // seek to TOC and read it
@@ -80,9 +81,9 @@ public class SimpleTextCompoundFormat extends CompoundFormat {
     assert StringHelper.startsWith(scratch.get(), TABLE);
     int numEntries = Integer.parseInt(stripPrefix(scratch, TABLE));
 
-    final String fileNames[] = new String[numEntries];
-    final long startOffsets[] = new long[numEntries];
-    final long endOffsets[] = new long[numEntries];
+    final String[] fileNames = new String[numEntries];
+    final long[] startOffsets = new long[numEntries];
+    final long[] endOffsets = new long[numEntries];
 
     for (int i = 0; i < numEntries; i++) {
       SimpleTextUtil.readLine(in, scratch);
@@ -135,7 +136,11 @@ public class SimpleTextCompoundFormat extends CompoundFormat {
       public IndexInput openInput(String name, IOContext context) throws IOException {
         ensureOpen();
         int index = getIndex(name);
-        return in.slice(name, startOffsets[index], endOffsets[index] - startOffsets[index]);
+        return in.slice(
+            name,
+            startOffsets[index],
+            endOffsets[index] - startOffsets[index],
+            context.readAdvice());
       }
 
       @Override
@@ -160,10 +165,10 @@ public class SimpleTextCompoundFormat extends CompoundFormat {
     String dataFile = IndexFileNames.segmentFileName(si.name, "", DATA_EXTENSION);
 
     int numFiles = si.files().size();
-    String names[] = si.files().toArray(new String[numFiles]);
+    String[] names = si.files().toArray(new String[numFiles]);
     Arrays.sort(names);
-    long startOffsets[] = new long[numFiles];
-    long endOffsets[] = new long[numFiles];
+    long[] startOffsets = new long[numFiles];
+    long[] endOffsets = new long[numFiles];
 
     BytesRefBuilder scratch = new BytesRefBuilder();
 
@@ -233,7 +238,7 @@ public class SimpleTextCompoundFormat extends CompoundFormat {
 
   static {
     int numDigits = Long.toString(Long.MAX_VALUE).length();
-    char pattern[] = new char[numDigits];
+    char[] pattern = new char[numDigits];
     Arrays.fill(pattern, '0');
     OFFSETPATTERN = new String(pattern);
   }

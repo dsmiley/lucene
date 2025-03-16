@@ -31,7 +31,6 @@ import org.apache.lucene.analysis.CharArraySet;
 import org.apache.lucene.analysis.TokenFilterFactory;
 import org.apache.lucene.analysis.TokenStream;
 import org.apache.lucene.util.ResourceLoader;
-import org.apache.lucene.util.ResourceLoaderAware;
 
 /**
  * Factory for a {@link ProtectedTermFilter}
@@ -82,8 +81,7 @@ import org.apache.lucene.util.ResourceLoaderAware;
  * @since 7.4.0
  * @lucene.spi {@value #NAME}
  */
-public class ProtectedTermFilterFactory extends ConditionalTokenFilterFactory
-    implements ResourceLoaderAware {
+public class ProtectedTermFilterFactory extends ConditionalTokenFilterFactory {
 
   public static final String NAME = "protectedTerm";
 
@@ -140,7 +138,7 @@ public class ProtectedTermFilterFactory extends ConditionalTokenFilterFactory
         String filterName = splitKey.get(0).toLowerCase(Locale.ROOT);
         if (wrappedFilterArgs.containsKey(filterName)) { // Skip if not in "wrappedFilter" arg
           Map<String, String> filterArgs =
-              wrappedFilterArgs.computeIfAbsent(filterName, k -> new HashMap<>());
+              wrappedFilterArgs.computeIfAbsent(filterName, _ -> new HashMap<>());
           String argKey = splitKey.get(1);
           filterArgs.put(
               argKey, argValue); // argKey is guaranteed unique, don't need to check for duplicates

@@ -58,6 +58,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Iterator;
 import java.util.List;
+import org.apache.lucene.internal.hppc.ObjectCursor;
 
 /**
  * The Gener object helps in the discarding of nodes which break the reduction effort and defend the
@@ -78,7 +79,7 @@ public class Gener extends Reduce {
     List<CharSequence> cmds = orig.cmds;
     List<Row> rows = new ArrayList<>();
     List<Row> orows = orig.rows;
-    int remap[] = new int[orows.size()];
+    int[] remap = new int[orows.size()];
 
     Arrays.fill(remap, 1);
     for (int j = orows.size() - 1; j >= 0; j--) {
@@ -101,10 +102,10 @@ public class Gener extends Reduce {
    * @return <code>true</code> if the Row should remain, <code>false
    *      </code> otherwise
    */
-  public boolean eat(Row in, int remap[]) {
+  public boolean eat(Row in, int[] remap) {
     int sum = 0;
-    for (Iterator<Cell> i = in.cells.values().iterator(); i.hasNext(); ) {
-      Cell c = i.next();
+    for (Iterator<ObjectCursor<Cell>> i = in.cells.values().iterator(); i.hasNext(); ) {
+      Cell c = i.next().value;
       sum += c.cnt;
       if (c.ref >= 0) {
         if (remap[c.ref] == 0) {
@@ -114,8 +115,8 @@ public class Gener extends Reduce {
     }
     int frame = sum / 10;
     boolean live = false;
-    for (Iterator<Cell> i = in.cells.values().iterator(); i.hasNext(); ) {
-      Cell c = i.next();
+    for (Iterator<ObjectCursor<Cell>> i = in.cells.values().iterator(); i.hasNext(); ) {
+      Cell c = i.next().value;
       if (c.cnt < frame && c.cmd >= 0) {
         c.cnt = 0;
         c.cmd = -1;

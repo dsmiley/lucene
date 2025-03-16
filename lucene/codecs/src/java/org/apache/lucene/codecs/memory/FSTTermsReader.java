@@ -19,10 +19,8 @@ package org.apache.lucene.codecs.memory;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.BitSet;
-import java.util.Collection;
 import java.util.Collections;
 import java.util.Iterator;
-import java.util.List;
 import java.util.TreeMap;
 import org.apache.lucene.codecs.BlockTermState;
 import org.apache.lucene.codecs.CodecUtil;
@@ -42,18 +40,18 @@ import org.apache.lucene.index.Terms;
 import org.apache.lucene.index.TermsEnum;
 import org.apache.lucene.store.ByteArrayDataInput;
 import org.apache.lucene.store.IndexInput;
-import org.apache.lucene.util.Accountable;
-import org.apache.lucene.util.Accountables;
+import org.apache.lucene.store.ReadAdvice;
 import org.apache.lucene.util.ArrayUtil;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.BytesRefBuilder;
 import org.apache.lucene.util.IOUtils;
 import org.apache.lucene.util.RamUsageEstimator;
-import org.apache.lucene.util.automaton.ByteRunAutomaton;
+import org.apache.lucene.util.automaton.ByteRunnable;
 import org.apache.lucene.util.automaton.CompiledAutomaton;
 import org.apache.lucene.util.fst.BytesRefFSTEnum;
 import org.apache.lucene.util.fst.BytesRefFSTEnum.InputOutput;
 import org.apache.lucene.util.fst.FST;
+import org.apache.lucene.util.fst.OffHeapFSTStore;
 import org.apache.lucene.util.fst.Outputs;
 import org.apache.lucene.util.fst.Util;
 
@@ -65,9 +63,9 @@ import org.apache.lucene.util.fst.Util;
  * @lucene.experimental
  */
 public class FSTTermsReader extends FieldsProducer {
-  final TreeMap<String, TermsReader> fields = new TreeMap<>();
-  final PostingsReaderBase postingsReader;
-  // static boolean TEST = false;
+  private final TreeMap<String, TermsReader> fields = new TreeMap<>();
+  private final PostingsReaderBase postingsReader;
+  private final IndexInput fstTermsInput;
 
   public FSTTermsReader(SegmentReadState state, PostingsReaderBase postingsReader)
       throws IOException {
@@ -76,7 +74,11 @@ public class FSTTermsReader extends FieldsProducer {
             state.segmentInfo.name, state.segmentSuffix, FSTTermsWriter.TERMS_EXTENSION);
 
     this.postingsReader = postingsReader;
-    final IndexInput in = state.directory.openInput(termsFileName, state.context);
+    this.fstTermsInput =
+        state.directory.openInput(
+            termsFileName, state.context.withReadAdvice(ReadAdvice.RANDOM_PRELOAD));
+
+    IndexInput in = this.fstTermsInput;
 
     boolean success = false;
     try {
@@ -109,9 +111,7 @@ public class FSTTermsReader extends FieldsProducer {
       }
       success = true;
     } finally {
-      if (success) {
-        IOUtils.close(in);
-      } else {
+      if (success == false) {
         IOUtils.closeWhileHandlingException(in);
       }
     }
@@ -167,16 +167,13 @@ public class FSTTermsReader extends FieldsProducer {
   @Override
   public void close() throws IOException {
     try {
-      IOUtils.close(postingsReader);
+      IOUtils.close(postingsReader, fstTermsInput);
     } finally {
       fields.clear();
     }
   }
 
-  private static final long BASE_RAM_BYTES_USED =
-      RamUsageEstimator.shallowSizeOfInstance(TermsReader.class);
-
-  final class TermsReader extends Terms implements Accountable {
+  final class TermsReader extends Terms {
 
     final FieldInfo fieldInfo;
     final long numTerms;
@@ -198,25 +195,11 @@ public class FSTTermsReader extends FieldsProducer {
       this.sumTotalTermFreq = sumTotalTermFreq;
       this.sumDocFreq = sumDocFreq;
       this.docCount = docCount;
-      this.dict = new FST<>(in, in, new FSTTermOutputs(fieldInfo));
-    }
-
-    @Override
-    public long ramBytesUsed() {
-      long bytesUsed = BASE_RAM_BYTES_USED;
-      if (dict != null) {
-        bytesUsed += dict.ramBytesUsed();
-      }
-      return bytesUsed;
-    }
-
-    @Override
-    public Collection<Accountable> getChildResources() {
-      if (dict == null) {
-        return Collections.emptyList();
-      } else {
-        return Collections.singletonList(Accountables.namedAccountable("terms", dict));
-      }
+      FSTTermOutputs outputs = new FSTTermOutputs(fieldInfo);
+      final var fstMetadata = FST.readMetadata(in, outputs);
+      OffHeapFSTStore offHeapFSTStore = new OffHeapFSTStore(in, in.getFilePointer(), fstMetadata);
+      this.dict = FST.fromFSTReader(fstMetadata, offHeapFSTStore);
+      in.skipBytes(offHeapFSTStore.size());
     }
 
     @Override
@@ -461,7 +444,7 @@ public class FSTTermsReader extends FieldsProducer {
       final Outputs<FSTTermOutputs.TermData> fstOutputs;
 
       /* query automaton to intersect with */
-      final ByteRunAutomaton fsa;
+      final ByteRunnable fsa;
 
       private final class Frame {
         /* fst stats */
@@ -477,6 +460,7 @@ public class FSTTermsReader extends FieldsProducer {
           this.fsaState = -1;
         }
 
+        @Override
         public String toString() {
           return "arc=" + fstArc + " state=" + fsaState;
         }
@@ -488,7 +472,7 @@ public class FSTTermsReader extends FieldsProducer {
         this.fst = dict;
         this.fstReader = fst.getBytesReader();
         this.fstOutputs = dict.outputs;
-        this.fsa = compiled.runAutomaton;
+        this.fsa = compiled.getByteRunnable();
         this.level = -1;
         this.stack = new Frame[16];
         for (int i = 0; i < stack.length; i++) {
@@ -559,7 +543,7 @@ public class FSTTermsReader extends FieldsProducer {
         if (term == null) {
           return SeekStatus.END;
         } else {
-          return term.equals(target) ? SeekStatus.FOUND : SeekStatus.NOT_FOUND;
+          return term.get().equals(target) ? SeekStatus.FOUND : SeekStatus.NOT_FOUND;
         }
       }
 
@@ -605,7 +589,7 @@ public class FSTTermsReader extends FieldsProducer {
         int label, upto = 0, limit = target.length;
         while (upto < limit) { // to target prefix, or ceil label (rewind prefix)
           frame = newFrame();
-          label = target.bytes[upto] & 0xff;
+          label = target.bytes[target.offset + upto] & 0xff;
           frame = loadCeilFrame(label, topFrame(), frame);
           if (frame == null || frame.fstArc.label() != label) {
             break;
@@ -793,22 +777,6 @@ public class FSTTermsReader extends FieldsProducer {
         }
       }
     }
-  }
-
-  @Override
-  public long ramBytesUsed() {
-    long ramBytesUsed = postingsReader.ramBytesUsed();
-    for (TermsReader r : fields.values()) {
-      ramBytesUsed += r.ramBytesUsed();
-    }
-    return ramBytesUsed;
-  }
-
-  @Override
-  public Collection<Accountable> getChildResources() {
-    List<Accountable> resources = new ArrayList<>(Accountables.namedAccountables("field", fields));
-    resources.add(Accountables.namedAccountable("delegate", postingsReader));
-    return Collections.unmodifiableCollection(resources);
   }
 
   @Override

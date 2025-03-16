@@ -20,9 +20,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.List;
-import org.apache.lucene.search.spans.Spans;
 import org.apache.lucene.util.ArrayUtil;
 import org.apache.lucene.util.BitSet;
 import org.apache.lucene.util.BitSetIterator;
@@ -32,71 +30,16 @@ import org.apache.lucene.util.CollectionUtil;
  * A conjunction of DocIdSetIterators. Requires that all of its sub-iterators must be on the same
  * document all the time. This iterates over the doc ids that are present in each given
  * DocIdSetIterator. <br>
- * Public only for use in {@link org.apache.lucene.search.spans}.
  *
  * @lucene.internal
  */
-public final class ConjunctionDISI extends DocIdSetIterator {
-
-  /**
-   * Create a conjunction over the provided {@link Scorer}s. Note that the returned {@link
-   * DocIdSetIterator} might leverage two-phase iteration in which case it is possible to retrieve
-   * the {@link TwoPhaseIterator} using {@link TwoPhaseIterator#unwrap}.
-   */
-  public static DocIdSetIterator intersectScorers(Collection<Scorer> scorers) {
-    if (scorers.size() < 2) {
-      throw new IllegalArgumentException("Cannot make a ConjunctionDISI of less than 2 iterators");
-    }
-    final List<DocIdSetIterator> allIterators = new ArrayList<>();
-    final List<TwoPhaseIterator> twoPhaseIterators = new ArrayList<>();
-    for (Scorer scorer : scorers) {
-      addScorer(scorer, allIterators, twoPhaseIterators);
-    }
-
-    return createConjunction(allIterators, twoPhaseIterators);
-  }
-
-  /**
-   * Create a conjunction over the provided DocIdSetIterators. Note that the returned {@link
-   * DocIdSetIterator} might leverage two-phase iteration in which case it is possible to retrieve
-   * the {@link TwoPhaseIterator} using {@link TwoPhaseIterator#unwrap}.
-   */
-  public static DocIdSetIterator intersectIterators(List<DocIdSetIterator> iterators) {
-    if (iterators.size() < 2) {
-      throw new IllegalArgumentException("Cannot make a ConjunctionDISI of less than 2 iterators");
-    }
-    final List<DocIdSetIterator> allIterators = new ArrayList<>();
-    final List<TwoPhaseIterator> twoPhaseIterators = new ArrayList<>();
-    for (DocIdSetIterator iterator : iterators) {
-      addIterator(iterator, allIterators, twoPhaseIterators);
-    }
-
-    return createConjunction(allIterators, twoPhaseIterators);
-  }
-
-  /**
-   * Create a conjunction over the provided {@link Spans}. Note that the returned {@link
-   * DocIdSetIterator} might leverage two-phase iteration in which case it is possible to retrieve
-   * the {@link TwoPhaseIterator} using {@link TwoPhaseIterator#unwrap}.
-   */
-  public static DocIdSetIterator intersectSpans(List<Spans> spanList) {
-    if (spanList.size() < 2) {
-      throw new IllegalArgumentException("Cannot make a ConjunctionDISI of less than 2 iterators");
-    }
-    final List<DocIdSetIterator> allIterators = new ArrayList<>();
-    final List<TwoPhaseIterator> twoPhaseIterators = new ArrayList<>();
-    for (Spans spans : spanList) {
-      addSpans(spans, allIterators, twoPhaseIterators);
-    }
-
-    return createConjunction(allIterators, twoPhaseIterators);
-  }
+final class ConjunctionDISI extends DocIdSetIterator {
 
   /**
    * Adds the scorer, possibly splitting up into two phases or collapsing if it is another
    * conjunction
    */
-  private static void addScorer(
+  static void addScorer(
       Scorer scorer,
       List<DocIdSetIterator> allIterators,
       List<TwoPhaseIterator> twoPhaseIterators) {
@@ -108,18 +51,7 @@ public final class ConjunctionDISI extends DocIdSetIterator {
     }
   }
 
-  /** Adds the Spans. */
-  private static void addSpans(
-      Spans spans, List<DocIdSetIterator> allIterators, List<TwoPhaseIterator> twoPhaseIterators) {
-    TwoPhaseIterator twoPhaseIter = spans.asTwoPhaseIterator();
-    if (twoPhaseIter != null) {
-      addTwoPhaseIterator(twoPhaseIter, allIterators, twoPhaseIterators);
-    } else { // no approximation support, use the iterator as-is
-      addIterator(spans, allIterators, twoPhaseIterators);
-    }
-  }
-
-  private static void addIterator(
+  static void addIterator(
       DocIdSetIterator disi,
       List<DocIdSetIterator> allIterators,
       List<TwoPhaseIterator> twoPhaseIterators) {
@@ -144,7 +76,7 @@ public final class ConjunctionDISI extends DocIdSetIterator {
     }
   }
 
-  private static void addTwoPhaseIterator(
+  static void addTwoPhaseIterator(
       TwoPhaseIterator twoPhaseIter,
       List<DocIdSetIterator> allIterators,
       List<TwoPhaseIterator> twoPhaseIterators) {
@@ -158,7 +90,7 @@ public final class ConjunctionDISI extends DocIdSetIterator {
     }
   }
 
-  private static DocIdSetIterator createConjunction(
+  static DocIdSetIterator createConjunction(
       List<DocIdSetIterator> allIterators, List<TwoPhaseIterator> twoPhaseIterators) {
 
     // check that all sub-iterators are on the same doc ID
@@ -166,24 +98,26 @@ public final class ConjunctionDISI extends DocIdSetIterator {
         allIterators.size() > 0
             ? allIterators.get(0).docID()
             : twoPhaseIterators.get(0).approximation.docID();
-    boolean iteratorsOnTheSameDoc = allIterators.stream().allMatch(it -> it.docID() == curDoc);
-    iteratorsOnTheSameDoc =
-        iteratorsOnTheSameDoc
-            && twoPhaseIterators.stream().allMatch(it -> it.approximation().docID() == curDoc);
-    if (iteratorsOnTheSameDoc == false) {
-      throw new IllegalArgumentException(
-          "Sub-iterators of ConjunctionDISI are not on the same document!");
+    long minCost = Long.MAX_VALUE;
+    for (DocIdSetIterator allIterator : allIterators) {
+      if (allIterator.docID() != curDoc) {
+        throwSubIteratorsNotOnSameDocument();
+      }
+      minCost = Math.min(allIterator.cost(), minCost);
     }
-
-    long minCost = allIterators.stream().mapToLong(DocIdSetIterator::cost).min().getAsLong();
+    for (TwoPhaseIterator it : twoPhaseIterators) {
+      if (it.approximation().docID() != curDoc) {
+        throwSubIteratorsNotOnSameDocument();
+      }
+    }
     List<BitSetIterator> bitSetIterators = new ArrayList<>();
     List<DocIdSetIterator> iterators = new ArrayList<>();
     for (DocIdSetIterator iterator : allIterators) {
-      if (iterator.cost() > minCost && iterator instanceof BitSetIterator) {
+      if (iterator instanceof BitSetIterator bitSetIterator && bitSetIterator.cost() > minCost) {
         // we put all bitset iterators into bitSetIterators
         // except if they have the minimum cost, since we need
         // them to lead the iteration in that case
-        bitSetIterators.add((BitSetIterator) iterator);
+        bitSetIterators.add(bitSetIterator);
       } else {
         iterators.add(iterator);
       }
@@ -209,6 +143,11 @@ public final class ConjunctionDISI extends DocIdSetIterator {
     return disi;
   }
 
+  private static void throwSubIteratorsNotOnSameDocument() {
+    throw new IllegalArgumentException(
+        "Sub-iterators of ConjunctionDISI are not on the same document!");
+  }
+
   final DocIdSetIterator lead1, lead2;
   final DocIdSetIterator[] others;
 
@@ -217,14 +156,7 @@ public final class ConjunctionDISI extends DocIdSetIterator {
 
     // Sort the array the first time to allow the least frequent DocsEnum to
     // lead the matching.
-    CollectionUtil.timSort(
-        iterators,
-        new Comparator<DocIdSetIterator>() {
-          @Override
-          public int compare(DocIdSetIterator o1, DocIdSetIterator o2) {
-            return Long.compare(o1.cost(), o2.cost());
-          }
-        });
+    CollectionUtil.timSort(iterators, (o1, o2) -> Long.compare(o1.cost(), o2.cost()));
     lead1 = iterators.get(0);
     lead2 = iterators.get(1);
     others = iterators.subList(2, iterators.size()).toArray(new DocIdSetIterator[0]);
@@ -348,6 +280,9 @@ public final class ConjunctionDISI extends DocIdSetIterator {
       advanceLead:
       for (; ; doc = lead.nextDoc()) {
         if (doc >= minLength) {
+          if (doc != NO_MORE_DOCS) {
+            lead.advance(NO_MORE_DOCS);
+          }
           return NO_MORE_DOCS;
         }
         for (BitSet bitSet : bitSets) {
@@ -390,13 +325,7 @@ public final class ConjunctionDISI extends DocIdSetIterator {
       assert twoPhaseIterators.size() > 0;
 
       CollectionUtil.timSort(
-          twoPhaseIterators,
-          new Comparator<TwoPhaseIterator>() {
-            @Override
-            public int compare(TwoPhaseIterator o1, TwoPhaseIterator o2) {
-              return Float.compare(o1.matchCost(), o2.matchCost());
-            }
-          });
+          twoPhaseIterators, (o1, o2) -> Float.compare(o1.matchCost(), o2.matchCost()));
 
       this.twoPhaseIterators =
           twoPhaseIterators.toArray(new TwoPhaseIterator[twoPhaseIterators.size()]);

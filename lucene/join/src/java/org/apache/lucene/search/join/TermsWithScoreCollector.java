@@ -18,7 +18,7 @@ package org.apache.lucene.search.join;
 
 import java.io.IOException;
 import java.util.Arrays;
-import org.apache.lucene.index.BinaryDocValues;
+import org.apache.lucene.index.SortedDocValues;
 import org.apache.lucene.index.SortedSetDocValues;
 import org.apache.lucene.search.Scorable;
 import org.apache.lucene.util.ArrayUtil;
@@ -75,23 +75,31 @@ abstract class TermsWithScoreCollector<DV> extends DocValuesTermsCollector<DV>
       switch (scoreMode) {
         case Avg:
           return new MV.Avg(sortedSetDocValues(field));
+        case Max:
+        case Min:
+        case None:
+        case Total:
         default:
           return new MV(sortedSetDocValues(field), scoreMode);
       }
     } else {
       switch (scoreMode) {
         case Avg:
-          return new SV.Avg(binaryDocValues(field));
+          return new SV.Avg(sortedDocValues(field));
+        case Max:
+        case Min:
+        case None:
+        case Total:
         default:
-          return new SV(binaryDocValues(field), scoreMode);
+          return new SV(sortedDocValues(field), scoreMode);
       }
     }
   }
 
   // impl that works with single value per document
-  static class SV extends TermsWithScoreCollector<BinaryDocValues> {
+  static class SV extends TermsWithScoreCollector<SortedDocValues> {
 
-    SV(Function<BinaryDocValues> docValuesCall, ScoreMode scoreMode) {
+    SV(Function<SortedDocValues> docValuesCall, ScoreMode scoreMode) {
       super(docValuesCall, scoreMode);
     }
 
@@ -99,7 +107,7 @@ abstract class TermsWithScoreCollector<DV> extends DocValuesTermsCollector<DV>
     public void collect(int doc) throws IOException {
       BytesRef value;
       if (docValues.advanceExact(doc)) {
-        value = docValues.binaryValue();
+        value = docValues.lookupOrd(docValues.ordValue());
       } else {
         value = new BytesRef(BytesRef.EMPTY_BYTES);
       }
@@ -137,6 +145,8 @@ abstract class TermsWithScoreCollector<DV> extends DocValuesTermsCollector<DV>
               scoreSums[ord] = current;
             }
             break;
+          case None:
+          case Avg:
           default:
             throw new AssertionError("unexpected: " + scoreMode);
         }
@@ -147,7 +157,7 @@ abstract class TermsWithScoreCollector<DV> extends DocValuesTermsCollector<DV>
 
       int[] scoreCounts = new int[INITIAL_ARRAY_SIZE];
 
-      Avg(Function<BinaryDocValues> docValuesCall) {
+      Avg(Function<SortedDocValues> docValuesCall) {
         super(docValuesCall, ScoreMode.Avg);
       }
 
@@ -155,7 +165,7 @@ abstract class TermsWithScoreCollector<DV> extends DocValuesTermsCollector<DV>
       public void collect(int doc) throws IOException {
         BytesRef value;
         if (docValues.advanceExact(doc)) {
-          value = docValues.binaryValue();
+          value = docValues.lookupOrd(docValues.ordValue());
         } else {
           value = new BytesRef(BytesRef.EMPTY_BYTES);
         }
@@ -203,9 +213,8 @@ abstract class TermsWithScoreCollector<DV> extends DocValuesTermsCollector<DV>
     @Override
     public void collect(int doc) throws IOException {
       if (docValues.advanceExact(doc)) {
-        long ord;
-        while ((ord = docValues.nextOrd()) != SortedSetDocValues.NO_MORE_ORDS) {
-          int termID = collectedTerms.add(docValues.lookupOrd(ord));
+        for (int i = 0; i < docValues.docValueCount(); i++) {
+          int termID = collectedTerms.add(docValues.lookupOrd(docValues.nextOrd()));
           if (termID < 0) {
             termID = -termID - 1;
           } else {
@@ -230,6 +239,8 @@ abstract class TermsWithScoreCollector<DV> extends DocValuesTermsCollector<DV>
             case Max:
               scoreSums[termID] = Math.max(scoreSums[termID], scorer.score());
               break;
+            case Avg:
+            case None:
             default:
               throw new AssertionError("unexpected: " + scoreMode);
           }
@@ -248,9 +259,8 @@ abstract class TermsWithScoreCollector<DV> extends DocValuesTermsCollector<DV>
       @Override
       public void collect(int doc) throws IOException {
         if (docValues.advanceExact(doc)) {
-          long ord;
-          while ((ord = docValues.nextOrd()) != SortedSetDocValues.NO_MORE_ORDS) {
-            int termID = collectedTerms.add(docValues.lookupOrd(ord));
+          for (int i = 0; i < docValues.docValueCount(); i++) {
+            int termID = collectedTerms.add(docValues.lookupOrd(docValues.nextOrd()));
             if (termID < 0) {
               termID = -termID - 1;
             } else {

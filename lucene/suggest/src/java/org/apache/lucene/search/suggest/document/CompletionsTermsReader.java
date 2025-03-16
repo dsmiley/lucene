@@ -31,8 +31,10 @@ import org.apache.lucene.util.Accountable;
 public final class CompletionsTermsReader implements Accountable {
   /** Minimum entry weight for the suggester */
   public final long minWeight;
+
   /** Maximum entry weight for the suggester */
   public final long maxWeight;
+
   /** type of suggester (context-enabled or not) */
   public final byte type;
 
@@ -70,10 +72,8 @@ public final class CompletionsTermsReader implements Accountable {
    */
   public synchronized NRTSuggester suggester() throws IOException {
     if (suggester == null) {
-      try (IndexInput dictClone = dictIn.clone()) { // let multiple fields load concurrently
-        dictClone.seek(offset);
-        suggester = NRTSuggester.load(dictClone, fstLoadMode);
-      }
+      IndexInput indexInput = dictIn.slice("NRTSuggester", offset, dictIn.length() - offset);
+      suggester = NRTSuggester.load(indexInput, fstLoadMode);
     }
     return suggester;
   }

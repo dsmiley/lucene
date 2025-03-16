@@ -16,6 +16,8 @@
  */
 package org.apache.lucene.index;
 
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
 
@@ -26,22 +28,26 @@ import java.util.Objects;
  * threads accessing this object.
  */
 public final class FieldInfo {
+
   /** Field's name */
   public final String name;
+
   /** Internal field number */
   public final int number;
 
   private DocValuesType docValuesType = DocValuesType.NONE;
+
+  private final DocValuesSkipIndexType docValuesSkipIndex;
 
   // True if any document indexed term vectors
   private boolean storeTermVector;
 
   private boolean omitNorms; // omit norms associated with indexed fields
 
-  private IndexOptions indexOptions = IndexOptions.NONE;
+  private final IndexOptions indexOptions;
   private boolean storePayloads; // whether this field stores payloads together with term positions
 
-  private final Map<String, String> attributes;
+  private Map<String, String> attributes;
 
   private long dvGen;
 
@@ -54,11 +60,15 @@ public final class FieldInfo {
   private int pointIndexDimensionCount;
   private int pointNumBytes;
 
-  private int vectorDimension; // if it is a positive value, it means this field indexes vectors
-  private VectorValues.SearchStrategy vectorSearchStrategy = VectorValues.SearchStrategy.NONE;
+  // if it is a positive value, it means this field indexes vectors
+  private final int vectorDimension;
+  private final VectorEncoding vectorEncoding;
+  private final VectorSimilarityFunction vectorSimilarityFunction;
 
   // whether this field is used as the soft-deletes field
   private final boolean softDeletesField;
+
+  private final boolean isParentField;
 
   /**
    * Sole constructor.
@@ -73,19 +83,23 @@ public final class FieldInfo {
       boolean storePayloads,
       IndexOptions indexOptions,
       DocValuesType docValues,
+      DocValuesSkipIndexType docValuesSkipIndex,
       long dvGen,
       Map<String, String> attributes,
       int pointDimensionCount,
       int pointIndexDimensionCount,
       int pointNumBytes,
       int vectorDimension,
-      VectorValues.SearchStrategy vectorSearchStrategy,
-      boolean softDeletesField) {
+      VectorEncoding vectorEncoding,
+      VectorSimilarityFunction vectorSimilarityFunction,
+      boolean softDeletesField,
+      boolean isParentField) {
     this.name = Objects.requireNonNull(name);
     this.number = number;
     this.docValuesType =
         Objects.requireNonNull(
             docValues, "DocValuesType must not be null (field: \"" + name + "\")");
+    this.docValuesSkipIndex = docValuesSkipIndex;
     this.indexOptions =
         Objects.requireNonNull(
             indexOptions, "IndexOptions must not be null (field: \"" + name + "\")");
@@ -104,153 +118,311 @@ public final class FieldInfo {
     this.pointIndexDimensionCount = pointIndexDimensionCount;
     this.pointNumBytes = pointNumBytes;
     this.vectorDimension = vectorDimension;
-    this.vectorSearchStrategy = vectorSearchStrategy;
+    this.vectorEncoding = vectorEncoding;
+    this.vectorSimilarityFunction = vectorSimilarityFunction;
     this.softDeletesField = softDeletesField;
+    this.isParentField = isParentField;
     this.checkConsistency();
   }
 
-  /** Performs internal consistency checks. Always returns true (or throws IllegalStateException) */
-  public boolean checkConsistency() {
+  /**
+   * Check correctness of the FieldInfo options
+   *
+   * @throws IllegalArgumentException if some options are incorrect
+   */
+  public void checkConsistency() {
+    if (indexOptions == null) {
+      throw new IllegalArgumentException("IndexOptions must not be null (field: '" + name + "')");
+    }
     if (indexOptions != IndexOptions.NONE) {
       // Cannot store payloads unless positions are indexed:
       if (indexOptions.compareTo(IndexOptions.DOCS_AND_FREQS_AND_POSITIONS) < 0 && storePayloads) {
-        throw new IllegalStateException(
+        throw new IllegalArgumentException(
             "indexed field '" + name + "' cannot have payloads without positions");
       }
     } else {
       if (storeTermVector) {
-        throw new IllegalStateException(
+        throw new IllegalArgumentException(
             "non-indexed field '" + name + "' cannot store term vectors");
       }
       if (storePayloads) {
-        throw new IllegalStateException("non-indexed field '" + name + "' cannot store payloads");
+        throw new IllegalArgumentException(
+            "non-indexed field '" + name + "' cannot store payloads");
       }
       if (omitNorms) {
-        throw new IllegalStateException("non-indexed field '" + name + "' cannot omit norms");
+        throw new IllegalArgumentException("non-indexed field '" + name + "' cannot omit norms");
       }
     }
 
-    if (pointDimensionCount < 0) {
-      throw new IllegalStateException(
-          "pointDimensionCount must be >= 0; got " + pointDimensionCount);
+    if (docValuesType == null) {
+      throw new IllegalArgumentException("DocValuesType must not be null (field: '" + name + "')");
     }
-
-    if (pointIndexDimensionCount < 0) {
-      throw new IllegalStateException(
-          "pointIndexDimensionCount must be >= 0; got " + pointIndexDimensionCount);
+    if (docValuesSkipIndex.isCompatibleWith(docValuesType) == false) {
+      throw new IllegalArgumentException(
+          "field '"
+              + name
+              + "' cannot have docValuesSkipIndexType="
+              + docValuesSkipIndex
+              + " with doc values type "
+              + docValuesType);
     }
-
-    if (pointNumBytes < 0) {
-      throw new IllegalStateException("pointNumBytes must be >= 0; got " + pointNumBytes);
-    }
-
-    if (pointDimensionCount != 0 && pointNumBytes == 0) {
-      throw new IllegalStateException(
-          "pointNumBytes must be > 0 when pointDimensionCount=" + pointDimensionCount);
-    }
-
-    if (pointIndexDimensionCount != 0 && pointDimensionCount == 0) {
-      throw new IllegalStateException(
-          "pointIndexDimensionCount must be 0 when pointDimensionCount=0");
-    }
-
-    if (pointNumBytes != 0 && pointDimensionCount == 0) {
-      throw new IllegalStateException(
-          "pointDimensionCount must be > 0 when pointNumBytes=" + pointNumBytes);
-    }
-
     if (dvGen != -1 && docValuesType == DocValuesType.NONE) {
-      throw new IllegalStateException(
+      throw new IllegalArgumentException(
           "field '"
               + name
               + "' cannot have a docvalues update generation without having docvalues");
     }
 
+    if (pointDimensionCount < 0) {
+      throw new IllegalArgumentException(
+          "pointDimensionCount must be >= 0; got "
+              + pointDimensionCount
+              + " (field: '"
+              + name
+              + "')");
+    }
+    if (pointIndexDimensionCount < 0) {
+      throw new IllegalArgumentException(
+          "pointIndexDimensionCount must be >= 0; got "
+              + pointIndexDimensionCount
+              + " (field: '"
+              + name
+              + "')");
+    }
+    if (pointNumBytes < 0) {
+      throw new IllegalArgumentException(
+          "pointNumBytes must be >= 0; got " + pointNumBytes + " (field: '" + name + "')");
+    }
+
+    if (pointDimensionCount != 0 && pointNumBytes == 0) {
+      throw new IllegalArgumentException(
+          "pointNumBytes must be > 0 when pointDimensionCount="
+              + pointDimensionCount
+              + " (field: '"
+              + name
+              + "')");
+    }
+    if (pointIndexDimensionCount != 0 && pointDimensionCount == 0) {
+      throw new IllegalArgumentException(
+          "pointIndexDimensionCount must be 0 when pointDimensionCount=0"
+              + " (field: '"
+              + name
+              + "')");
+    }
+    if (pointNumBytes != 0 && pointDimensionCount == 0) {
+      throw new IllegalArgumentException(
+          "pointDimensionCount must be > 0 when pointNumBytes="
+              + pointNumBytes
+              + " (field: '"
+              + name
+              + "')");
+    }
+
+    if (vectorSimilarityFunction == null) {
+      throw new IllegalArgumentException(
+          "Vector similarity function must not be null (field: '" + name + "')");
+    }
     if (vectorDimension < 0) {
-      throw new IllegalStateException("vectorDimension must be >=0; got " + vectorDimension);
+      throw new IllegalArgumentException(
+          "vectorDimension must be >=0; got " + vectorDimension + " (field: '" + name + "')");
     }
 
-    if (vectorDimension == 0 && vectorSearchStrategy != VectorValues.SearchStrategy.NONE) {
-      throw new IllegalStateException(
-          "vector search strategy must be NONE when dimension = 0; got " + vectorSearchStrategy);
+    if (softDeletesField && isParentField) {
+      throw new IllegalArgumentException(
+          "field can't be used as soft-deletes field and parent document field (field: '"
+              + name
+              + "')");
     }
-
-    return true;
   }
 
-  // should only be called by FieldInfos#addOrUpdate
-  void update(
-      boolean storeTermVector,
-      boolean omitNorms,
-      boolean storePayloads,
-      IndexOptions indexOptions,
-      Map<String, String> attributes,
-      int dimensionCount,
-      int indexDimensionCount,
-      int dimensionNumBytes) {
-    if (indexOptions == null) {
-      throw new NullPointerException("IndexOptions must not be null (field: \"" + name + "\")");
+  /**
+   * Verify that the provided FieldInfo has the same schema as this FieldInfo
+   *
+   * @param o – other FieldInfo whose schema is verified against this FieldInfo's schema
+   * @throws IllegalArgumentException if the field schemas are not the same
+   */
+  void verifySameSchema(FieldInfo o) {
+    String fieldName = this.name;
+    verifySameIndexOptions(fieldName, this.indexOptions, o.getIndexOptions());
+    if (this.indexOptions != IndexOptions.NONE) {
+      verifySameOmitNorms(fieldName, this.omitNorms, o.omitNorms);
+      verifySameStoreTermVectors(fieldName, this.storeTermVector, o.storeTermVector);
     }
-    // System.out.println("FI.update field=" + name + " indexed=" + indexed + " omitNorms=" +
-    // omitNorms + " this.omitNorms=" + this.omitNorms);
-    if (this.indexOptions != indexOptions) {
-      if (this.indexOptions == IndexOptions.NONE) {
-        this.indexOptions = indexOptions;
-      } else if (indexOptions != IndexOptions.NONE) {
-        throw new IllegalArgumentException(
-            "cannot change field \""
-                + name
-                + "\" from index options="
-                + this.indexOptions
-                + " to inconsistent index options="
-                + indexOptions);
-      }
-    }
+    verifySameDocValuesType(fieldName, this.docValuesType, o.docValuesType);
+    verifySameDocValuesSkipIndex(fieldName, this.docValuesSkipIndex, o.docValuesSkipIndex);
+    verifySamePointsOptions(
+        fieldName,
+        this.pointDimensionCount,
+        this.pointIndexDimensionCount,
+        this.pointNumBytes,
+        o.pointDimensionCount,
+        o.pointIndexDimensionCount,
+        o.pointNumBytes);
+    verifySameVectorOptions(
+        fieldName,
+        this.vectorDimension,
+        this.vectorEncoding,
+        this.vectorSimilarityFunction,
+        o.vectorDimension,
+        o.vectorEncoding,
+        o.vectorSimilarityFunction);
+  }
 
-    if (this.pointDimensionCount == 0 && dimensionCount != 0) {
-      this.pointDimensionCount = dimensionCount;
-      this.pointIndexDimensionCount = indexDimensionCount;
-      this.pointNumBytes = dimensionNumBytes;
-    } else if (dimensionCount != 0
-        && (this.pointDimensionCount != dimensionCount
-            || this.pointIndexDimensionCount != indexDimensionCount
-            || this.pointNumBytes != dimensionNumBytes)) {
+  /**
+   * Verify that the provided index options are the same
+   *
+   * @throws IllegalArgumentException if they are not the same
+   */
+  static void verifySameIndexOptions(
+      String fieldName, IndexOptions indexOptions1, IndexOptions indexOptions2) {
+    if (indexOptions1 != indexOptions2) {
       throw new IllegalArgumentException(
           "cannot change field \""
-              + name
+              + fieldName
+              + "\" from index options="
+              + indexOptions1
+              + " to inconsistent index options="
+              + indexOptions2);
+    }
+  }
+
+  /**
+   * Verify that the provided docValues type are the same
+   *
+   * @throws IllegalArgumentException if they are not the same
+   */
+  static void verifySameDocValuesType(
+      String fieldName, DocValuesType docValuesType1, DocValuesType docValuesType2) {
+    if (docValuesType1 != docValuesType2) {
+      throw new IllegalArgumentException(
+          "cannot change field \""
+              + fieldName
+              + "\" from doc values type="
+              + docValuesType1
+              + " to inconsistent doc values type="
+              + docValuesType2);
+    }
+  }
+
+  /**
+   * Verify that the provided docValues type are the same
+   *
+   * @throws IllegalArgumentException if they are not the same
+   */
+  static void verifySameDocValuesSkipIndex(
+      String fieldName,
+      DocValuesSkipIndexType hasDocValuesSkipIndex1,
+      DocValuesSkipIndexType hasDocValuesSkipIndex2) {
+    if (hasDocValuesSkipIndex1 != hasDocValuesSkipIndex2) {
+      throw new IllegalArgumentException(
+          "cannot change field \""
+              + fieldName
+              + "\" from docValuesSkipIndexType="
+              + hasDocValuesSkipIndex1
+              + " to inconsistent docValuesSkipIndexType="
+              + hasDocValuesSkipIndex2);
+    }
+  }
+
+  /**
+   * Verify that the provided store term vectors options are the same
+   *
+   * @throws IllegalArgumentException if they are not the same
+   */
+  static void verifySameStoreTermVectors(
+      String fieldName, boolean storeTermVector1, boolean storeTermVector2) {
+    if (storeTermVector1 != storeTermVector2) {
+      throw new IllegalArgumentException(
+          "cannot change field \""
+              + fieldName
+              + "\" from storeTermVector="
+              + storeTermVector1
+              + " to inconsistent storeTermVector="
+              + storeTermVector2);
+    }
+  }
+
+  /**
+   * Verify that the provided omitNorms are the same
+   *
+   * @throws IllegalArgumentException if they are not the same
+   */
+  static void verifySameOmitNorms(String fieldName, boolean omitNorms1, boolean omitNorms2) {
+    if (omitNorms1 != omitNorms2) {
+      throw new IllegalArgumentException(
+          "cannot change field \""
+              + fieldName
+              + "\" from omitNorms="
+              + omitNorms1
+              + " to inconsistent omitNorms="
+              + omitNorms2);
+    }
+  }
+
+  /**
+   * Verify that the provided points indexing options are the same
+   *
+   * @throws IllegalArgumentException if they are not the same
+   */
+  static void verifySamePointsOptions(
+      String fieldName,
+      int pointDimensionCount1,
+      int indexDimensionCount1,
+      int numBytes1,
+      int pointDimensionCount2,
+      int indexDimensionCount2,
+      int numBytes2) {
+    if (pointDimensionCount1 != pointDimensionCount2
+        || indexDimensionCount1 != indexDimensionCount2
+        || numBytes1 != numBytes2) {
+      throw new IllegalArgumentException(
+          "cannot change field \""
+              + fieldName
               + "\" from points dimensionCount="
-              + this.pointDimensionCount
+              + pointDimensionCount1
               + ", indexDimensionCount="
-              + this.pointIndexDimensionCount
+              + indexDimensionCount1
               + ", numBytes="
-              + this.pointNumBytes
+              + numBytes1
               + " to inconsistent dimensionCount="
-              + dimensionCount
+              + pointDimensionCount2
               + ", indexDimensionCount="
-              + indexDimensionCount
+              + indexDimensionCount2
               + ", numBytes="
-              + dimensionNumBytes);
+              + numBytes2);
     }
+  }
 
-    // if updated field data is not for indexing, leave the updates out
-    if (this.indexOptions != IndexOptions.NONE) {
-      this.storeTermVector |= storeTermVector; // once vector, always vector
-      this.storePayloads |= storePayloads;
-
-      // Awkward: only drop norms if incoming update is indexed:
-      if (indexOptions != IndexOptions.NONE && this.omitNorms != omitNorms) {
-        this.omitNorms = true; // if one require omitNorms at least once, it remains off for life
-      }
+  /**
+   * Verify that the provided vector indexing options are the same
+   *
+   * @throws IllegalArgumentException if they are not the same
+   */
+  static void verifySameVectorOptions(
+      String fieldName,
+      int vd1,
+      VectorEncoding ve1,
+      VectorSimilarityFunction vsf1,
+      int vd2,
+      VectorEncoding ve2,
+      VectorSimilarityFunction vsf2) {
+    if (vd1 != vd2 || vsf1 != vsf2 || ve1 != ve2) {
+      throw new IllegalArgumentException(
+          "cannot change field \""
+              + fieldName
+              + "\" from vector dimension="
+              + vd1
+              + ", vector encoding="
+              + ve1
+              + ", vector similarity function="
+              + vsf1
+              + " to inconsistent vector dimension="
+              + vd2
+              + ", vector encoding="
+              + ve2
+              + ", vector similarity function="
+              + vsf2);
     }
-    if (this.indexOptions == IndexOptions.NONE
-        || this.indexOptions.compareTo(IndexOptions.DOCS_AND_FREQS_AND_POSITIONS) < 0) {
-      // cannot store payloads if we don't store positions:
-      this.storePayloads = false;
-    }
-    if (attributes != null) {
-      this.attributes.putAll(attributes);
-    }
-    this.checkConsistency();
   }
 
   /**
@@ -353,63 +525,19 @@ public final class FieldInfo {
     return pointNumBytes;
   }
 
-  /**
-   * Record that this field is indexed with vectors, with the specified num of dimensions and
-   * distance function
-   */
-  public void setVectorDimensionAndSearchStrategy(
-      int dimension, VectorValues.SearchStrategy searchStrategy) {
-    if (dimension < 0) {
-      throw new IllegalArgumentException("vector dimension must be >= 0; got " + dimension);
-    }
-    if (dimension > VectorValues.MAX_DIMENSIONS) {
-      throw new IllegalArgumentException(
-          "vector dimension must be <= VectorValues.MAX_DIMENSIONS (="
-              + VectorValues.MAX_DIMENSIONS
-              + "); got "
-              + dimension);
-    }
-    if (dimension == 0 && searchStrategy != VectorValues.SearchStrategy.NONE) {
-      throw new IllegalArgumentException(
-          "vector search strategy must be NONE when the vector dimension = 0; got "
-              + searchStrategy);
-    }
-    if (vectorDimension != 0 && vectorDimension != dimension) {
-      throw new IllegalArgumentException(
-          "cannot change vector dimension from "
-              + vectorDimension
-              + " to "
-              + dimension
-              + " for field=\""
-              + name
-              + "\"");
-    }
-    if (vectorSearchStrategy != VectorValues.SearchStrategy.NONE
-        && vectorSearchStrategy != searchStrategy) {
-      throw new IllegalArgumentException(
-          "cannot change vector search strategy from "
-              + vectorSearchStrategy
-              + " to "
-              + searchStrategy
-              + " for field=\""
-              + name
-              + "\"");
-    }
-
-    this.vectorDimension = dimension;
-    this.vectorSearchStrategy = searchStrategy;
-
-    assert checkConsistency();
-  }
-
   /** Returns the number of dimensions of the vector value */
   public int getVectorDimension() {
     return vectorDimension;
   }
 
-  /** Returns {@link VectorValues.SearchStrategy} for the field */
-  public VectorValues.SearchStrategy getVectorSearchStrategy() {
-    return vectorSearchStrategy;
+  /** Returns the number of dimensions of the vector value */
+  public VectorEncoding getVectorEncoding() {
+    return vectorEncoding;
+  }
+
+  /** Returns {@link VectorSimilarityFunction} for the field */
+  public VectorSimilarityFunction getVectorSimilarityFunction() {
+    return vectorSimilarityFunction;
   }
 
   /** Record that this field is indexed with docvalues, with the specified type */
@@ -438,28 +566,22 @@ public final class FieldInfo {
     return indexOptions;
   }
 
-  /** Record the {@link IndexOptions} to use with this field. */
-  public void setIndexOptions(IndexOptions newIndexOptions) {
-    if (indexOptions != newIndexOptions) {
-      if (indexOptions == IndexOptions.NONE) {
-        indexOptions = newIndexOptions;
-      } else if (newIndexOptions != IndexOptions.NONE) {
-        throw new IllegalArgumentException(
-            "cannot change field \""
-                + name
-                + "\" from index options="
-                + indexOptions
-                + " to inconsistent index options="
-                + newIndexOptions);
-      }
-    }
+  /**
+   * Returns name of this field
+   *
+   * @return name
+   */
+  public String getName() {
+    return name;
+  }
 
-    if (indexOptions == IndexOptions.NONE
-        || indexOptions.compareTo(IndexOptions.DOCS_AND_FREQS_AND_POSITIONS) < 0) {
-      // cannot store payloads if we don't store positions:
-      storePayloads = false;
-    }
-    this.checkConsistency();
+  /**
+   * Returns the field number
+   *
+   * @return field number
+   */
+  public int getFieldNumber() {
+    return number;
   }
 
   /**
@@ -468,6 +590,11 @@ public final class FieldInfo {
    */
   public DocValuesType getDocValuesType() {
     return docValuesType;
+  }
+
+  /** Returns true if, and only if, this field has a skip index. */
+  public DocValuesSkipIndexType docValuesSkipIndexType() {
+    return docValuesSkipIndex;
   }
 
   /** Sets the docValues generation of this field. */
@@ -487,8 +614,7 @@ public final class FieldInfo {
   }
 
   void setStorePayloads() {
-    if (indexOptions != IndexOptions.NONE
-        && indexOptions.compareTo(IndexOptions.DOCS_AND_FREQS_AND_POSITIONS) >= 0) {
+    if (indexOptions.compareTo(IndexOptions.DOCS_AND_FREQS_AND_POSITIONS) >= 0) {
       storePayloads = true;
     }
     this.checkConsistency();
@@ -519,7 +645,7 @@ public final class FieldInfo {
   }
 
   /** Returns true if any term vectors exist for this field. */
-  public boolean hasVectors() {
+  public boolean hasTermVectors() {
     return storeTermVector;
   }
 
@@ -529,7 +655,7 @@ public final class FieldInfo {
   }
 
   /** Get a codec attribute value, or null if it does not exist */
-  public String getAttribute(String key) {
+  public synchronized String getAttribute(String key) {
     return attributes.get(key);
   }
 
@@ -544,12 +670,17 @@ public final class FieldInfo {
    * If the value of the attributes for a same field is changed between the documents, the behaviour
    * after merge is undefined.
    */
-  public String putAttribute(String key, String value) {
-    return attributes.put(key, value);
+  public synchronized String putAttribute(String key, String value) {
+    HashMap<String, String> newMap = new HashMap<>(attributes);
+    String oldValue = newMap.put(key, value);
+    // This needs to be thread-safe as multiple threads may be updating (different) attributes
+    // concurrently due to concurrent merging.
+    attributes = Collections.unmodifiableMap(newMap);
+    return oldValue;
   }
 
   /** Returns internal codec attributes map. */
-  public Map<String, String> attributes() {
+  public synchronized Map<String, String> attributes() {
     return attributes;
   }
 
@@ -559,5 +690,13 @@ public final class FieldInfo {
    */
   public boolean isSoftDeletesField() {
     return softDeletesField;
+  }
+
+  /**
+   * Returns true if this field is configured and used as the parent document field field. See
+   * {@link IndexWriterConfig#setParentField(String)}
+   */
+  public boolean isParentField() {
+    return isParentField;
   }
 }

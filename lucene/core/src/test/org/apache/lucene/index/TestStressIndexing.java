@@ -16,19 +16,21 @@
  */
 package org.apache.lucene.index;
 
-import org.apache.lucene.analysis.MockAnalyzer;
-import org.apache.lucene.document.*;
+import org.apache.lucene.document.Document;
+import org.apache.lucene.document.Field;
 import org.apache.lucene.index.IndexWriterConfig.OpenMode;
-import org.apache.lucene.search.*;
-import org.apache.lucene.store.*;
-import org.apache.lucene.util.*;
+import org.apache.lucene.store.ByteBuffersDirectory;
+import org.apache.lucene.store.Directory;
+import org.apache.lucene.tests.analysis.MockAnalyzer;
+import org.apache.lucene.tests.store.MockDirectoryWrapper;
+import org.apache.lucene.tests.util.English;
+import org.apache.lucene.tests.util.LuceneTestCase;
 
 public class TestStressIndexing extends LuceneTestCase {
   private abstract static class TimedThread extends Thread {
     volatile boolean failed;
-    int count;
-    private static int RUN_TIME_MSEC = atLeast(1000);
-    private TimedThread[] allThreads;
+    private static final int RUN_ITERATIONS = TEST_NIGHTLY ? atLeast(100) : atLeast(20);
+    private final TimedThread[] allThreads;
 
     public abstract void doWork() throws Throwable;
 
@@ -38,16 +40,12 @@ public class TestStressIndexing extends LuceneTestCase {
 
     @Override
     public void run() {
-      final long stopTime = System.currentTimeMillis() + RUN_TIME_MSEC;
-
-      count = 0;
-
+      int iterations = 0;
       try {
         do {
           if (anyErrors()) break;
           doWork();
-          count++;
-        } while (System.currentTimeMillis() < stopTime);
+        } while (++iterations < RUN_ITERATIONS);
       } catch (Throwable e) {
         System.out.println(Thread.currentThread() + ": exc");
         e.printStackTrace(System.out);
@@ -56,13 +54,14 @@ public class TestStressIndexing extends LuceneTestCase {
     }
 
     private boolean anyErrors() {
-      for (int i = 0; i < allThreads.length; i++)
-        if (allThreads[i] != null && allThreads[i].failed) return true;
+      for (TimedThread thread : allThreads) {
+        if (thread != null && thread.failed) return true;
+      }
       return false;
     }
   }
 
-  private class IndexerThread extends TimedThread {
+  private static class IndexerThread extends TimedThread {
     IndexWriter writer;
     int nextID;
 
@@ -92,7 +91,7 @@ public class TestStressIndexing extends LuceneTestCase {
   }
 
   private static class SearcherThread extends TimedThread {
-    private Directory directory;
+    private final Directory directory;
 
     public SearcherThread(Directory directory, TimedThread[] threads) {
       super(threads);
@@ -103,10 +102,9 @@ public class TestStressIndexing extends LuceneTestCase {
     public void doWork() throws Throwable {
       for (int i = 0; i < 100; i++) {
         IndexReader ir = DirectoryReader.open(directory);
-        IndexSearcher is = newSearcher(ir);
+        newSearcher(ir);
         ir.close();
       }
-      count += 100;
     }
   }
 
@@ -151,7 +149,7 @@ public class TestStressIndexing extends LuceneTestCase {
 
     modifier.close();
 
-    for (int i = 0; i < numThread; i++) assertTrue(!threads[i].failed);
+    for (int i = 0; i < numThread; i++) assertFalse(threads[i].failed);
 
     // System.out.println("    Writer: " + indexerThread.count + " iterations");
     // System.out.println("Searcher 1: " + searcherThread1.count + " searchers created");
@@ -160,7 +158,12 @@ public class TestStressIndexing extends LuceneTestCase {
 
   /* */
   public void testStressIndexAndSearching() throws Exception {
-    Directory directory = newMaybeVirusCheckingDirectory();
+    final Directory directory;
+    if (TEST_NIGHTLY) {
+      directory = newMaybeVirusCheckingDirectory();
+    } else {
+      directory = new MockDirectoryWrapper(random(), new ByteBuffersDirectory());
+    }
     if (directory instanceof MockDirectoryWrapper) {
       ((MockDirectoryWrapper) directory).setAssertNoUnrefencedFilesOnClose(true);
     }

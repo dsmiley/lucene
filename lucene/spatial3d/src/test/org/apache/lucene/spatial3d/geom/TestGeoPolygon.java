@@ -20,10 +20,37 @@ import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.Collections;
 import java.util.List;
-import org.apache.lucene.util.LuceneTestCase;
+import org.apache.lucene.tests.util.LuceneTestCase;
 import org.junit.Test;
 
 public class TestGeoPolygon extends LuceneTestCase {
+
+  @Test
+  public void testH3CellsWrongIntersection() {
+    final List<GeoPoint> points1 = new ArrayList<>();
+    addToList(points1, PlanetModel.SPHERE, -64.2102198418716, -39.14233318389477);
+    addToList(points1, PlanetModel.SPHERE, -64.21016450005413, -39.142267144439614);
+    addToList(points1, PlanetModel.SPHERE, -64.21021077465937, -39.1421844504783);
+    addToList(points1, PlanetModel.SPHERE, -64.21031239098929, -39.142167795785085);
+    addToList(points1, PlanetModel.SPHERE, -64.2103677330169, -39.14223383513698);
+    addToList(points1, PlanetModel.SPHERE, -64.21032145850448, -39.14231652928534);
+    final List<GeoPoint> points2 = new ArrayList<>();
+    addToList(points2, PlanetModel.SPHERE, -64.20991499254879, -39.14238314705201);
+    addToList(points2, PlanetModel.SPHERE, -64.20985965132967, -39.14231710755475);
+    addToList(points2, PlanetModel.SPHERE, -64.20990592624541, -39.142234413886875);
+    addToList(points2, PlanetModel.SPHERE, -64.21000754228744, -39.142217759529174);
+    addToList(points2, PlanetModel.SPHERE, -64.21006288371667, -39.14228379892317);
+    addToList(points2, PlanetModel.SPHERE, -64.21001660889377, -39.14236649277811);
+
+    final GeoPolygon polygon1 = GeoPolygonFactory.makeGeoPolygon(PlanetModel.SPHERE, points1);
+    final GeoPolygon polygon2 = GeoPolygonFactory.makeGeoPolygon(PlanetModel.SPHERE, points2);
+    assertFalse(polygon1.intersects(polygon2));
+  }
+
+  private static void addToList(
+      List<GeoPoint> points, PlanetModel planetModel, double lon, double lat) {
+    points.add(new GeoPoint(planetModel, Geo3DUtil.fromDegrees(lat), Geo3DUtil.fromDegrees(lon)));
+  }
 
   @Test
   public void testPolygonPointFiltering() {
@@ -465,7 +492,6 @@ public class TestGeoPolygon extends LuceneTestCase {
   @Test
   public void testPolygonBoundsCase1() {
     GeoPolygon c;
-    LatLonBounds b;
     List<GeoPoint> points;
     XYZBounds xyzb;
     GeoPoint point1;
@@ -608,10 +634,6 @@ public class TestGeoPolygon extends LuceneTestCase {
     c.addShape(new GeoConcavePolygon(pm, points2, p2bits, false));
     // System.out.println(zScaling);
 
-    GeoPoint point = new GeoPoint(pm, -0.9825762558001477, 2.4832136904725273);
-    GeoPoint quantizedPoint =
-        new GeoPoint(-0.4505446160475436, 0.34850109186970535, -0.8539966368663765);
-
     GeoArea xyzSolid =
         GeoAreaFactory.makeGeoArea(
             pm,
@@ -664,13 +686,11 @@ public class TestGeoPolygon extends LuceneTestCase {
     points.add(new GeoPoint(-0.1699323603224724, 0.8516746480592872, 0.4963385521664198));
     points.add(new GeoPoint(0.2654788898359613, 0.7380222309164597, 0.6200740473100581));
 
-    boolean illegalArgumentException = false;
-    try {
-      final GeoPolygon p = GeoPolygonFactory.makeGeoPolygon(PlanetModel.WGS84, points, null);
-    } catch (IllegalArgumentException e) {
-      illegalArgumentException = true;
-    }
-    assertTrue(illegalArgumentException);
+    expectThrows(
+        IllegalArgumentException.class,
+        () -> {
+          GeoPolygonFactory.makeGeoPolygon(PlanetModel.WGS84, points, null);
+        });
   }
 
   @Test
@@ -697,13 +717,11 @@ public class TestGeoPolygon extends LuceneTestCase {
     points.add(new GeoPoint(PlanetModel.WGS84, 0.4654236264787552, 1.3013260557429494));
     points.add(new GeoPoint(PlanetModel.WGS84, -1.2964641581620537, -1.487600369139357));
 
-    boolean illegalArgumentException = false;
-    try {
-      final GeoPolygon p = GeoPolygonFactory.makeGeoPolygon(PlanetModel.WGS84, points, null);
-    } catch (IllegalArgumentException e) {
-      illegalArgumentException = true;
-    }
-    assertTrue(illegalArgumentException);
+    expectThrows(
+        IllegalArgumentException.class,
+        () -> {
+          GeoPolygonFactory.makeGeoPolygon(PlanetModel.WGS84, points, null);
+        });
   }
 
   @Test
@@ -729,18 +747,17 @@ public class TestGeoPolygon extends LuceneTestCase {
     final GeoCompositePolygon rval = new GeoCompositePolygon(PlanetModel.WGS84);
     final GeoPolygonFactory.MutableBoolean mutableBoolean = new GeoPolygonFactory.MutableBoolean();
 
-    boolean result =
-        GeoPolygonFactory.buildPolygonShape(
-            rval,
-            mutableBoolean,
-            PlanetModel.WGS84,
-            points,
-            internal,
-            0,
-            1,
-            new SidedPlane(p1, p3, p2),
-            new ArrayList<GeoPolygon>(),
-            null);
+    GeoPolygonFactory.buildPolygonShape(
+        rval,
+        mutableBoolean,
+        PlanetModel.WGS84,
+        points,
+        internal,
+        0,
+        1,
+        new SidedPlane(p1, p3, p2),
+        new ArrayList<GeoPolygon>(),
+        null);
 
     assertFalse(mutableBoolean.value);
   }
@@ -770,7 +787,7 @@ public class TestGeoPolygon extends LuceneTestCase {
 
     shapeList.add(desc);
 
-    GeoPolygon p = GeoPolygonFactory.makeLargeGeoPolygon(PlanetModel.WGS84, shapeList);
+    GeoPolygonFactory.makeLargeGeoPolygon(PlanetModel.WGS84, shapeList);
   }
 
   @Test
@@ -854,8 +871,6 @@ public class TestGeoPolygon extends LuceneTestCase {
     */
 
     final GeoPoint point = new GeoPoint(PlanetModel.WGS84, -0.41518838180529244, 3.141592653589793);
-    final GeoPoint encodedPoint =
-        new GeoPoint(-0.9155623168963972, 2.3309121299774915E-10, -0.40359240449795253);
 
     assertTrue(p.isWithin(point) ? solid.isWithin(point) : true);
   }
@@ -1038,15 +1053,11 @@ public class TestGeoPolygon extends LuceneTestCase {
     final BitSet poly2Bitset = new BitSet();
     poly2Bitset.set(1);
 
-    boolean result;
-    try {
-      final GeoConvexPolygon poly2 = new GeoConvexPolygon(PlanetModel.WGS84, poly2List);
-      result = true;
-    } catch (IllegalArgumentException e) {
-      result = false;
-    }
-
-    assertTrue(!result);
+    expectThrows(
+        IllegalArgumentException.class,
+        () -> {
+          new GeoConvexPolygon(PlanetModel.WGS84, poly2List);
+        });
   }
 
   @Test
@@ -1397,9 +1408,9 @@ public class TestGeoPolygon extends LuceneTestCase {
     points.add(
         new GeoPoint(
             PlanetModel.SPHERE, Geo3DUtil.fromDegrees(64.53775), Geo3DUtil.fromDegrees(-52.19148)));
-    GeoPolygon polygon = GeoPolygonFactory.makeGeoPolygon(PlanetModel.SPHERE, points);
+    GeoPolygonFactory.makeGeoPolygon(PlanetModel.SPHERE, points);
     Collections.reverse(points);
-    polygon = GeoPolygonFactory.makeGeoPolygon(PlanetModel.SPHERE, points);
+    GeoPolygonFactory.makeGeoPolygon(PlanetModel.SPHERE, points);
   }
 
   @Test
@@ -1495,9 +1506,9 @@ public class TestGeoPolygon extends LuceneTestCase {
     points.add(
         new GeoPoint(
             PlanetModel.SPHERE, Geo3DUtil.fromDegrees(50.455467), Geo3DUtil.fromDegrees(-3.48905)));
-    GeoPolygon polygon = GeoPolygonFactory.makeGeoPolygon(PlanetModel.SPHERE, points);
+    GeoPolygonFactory.makeGeoPolygon(PlanetModel.SPHERE, points);
     Collections.reverse(points);
-    polygon = GeoPolygonFactory.makeGeoPolygon(PlanetModel.SPHERE, points);
+    GeoPolygonFactory.makeGeoPolygon(PlanetModel.SPHERE, points);
   }
 
   /*
@@ -1582,7 +1593,6 @@ public class TestGeoPolygon extends LuceneTestCase {
     // Is the north pole in set, or out of set?
     final GeoPoint northPole = new GeoPoint(PlanetModel.WGS84, Math.PI * 0.5, 0.0);
     final GeoPoint negativeX = new GeoPoint(PlanetModel.WGS84, 0.0, Math.PI);
-    final GeoPoint negativeY = new GeoPoint(PlanetModel.WGS84, 0.0, -Math.PI * 0.5);
     final GeoPoint positiveY = new GeoPoint(PlanetModel.WGS84, 0.0, Math.PI * 0.5);
     final GeoPoint testPoint =
         new GeoPoint(-0.074161727332972, 0.5686488061123504, 0.8178445379383386);
@@ -1728,11 +1738,6 @@ public class TestGeoPolygon extends LuceneTestCase {
      */
     // These are too close to parallel.  The only solution is to prevent the poly from being
     // created.  Let's see if Geo3d thinks they are parallel.
-
-    final Plane p1 = new Plane(-1.224646799147353E-16, -1.0, -7.498798913309287E-33, 0.0);
-    final Plane p2 =
-        new Plane(-3.0261581679831E-12, -0.9999999999999999, -1.8529874570670608E-28, 0.0);
-    final Plane p3 = new Plane(4.234084035470679E-12, 1.0, -1.5172037954732973E-12, 0.0);
 
     assertFalse(shape.isWithin(unquantized));
 
@@ -2475,7 +2480,6 @@ public class TestGeoPolygon extends LuceneTestCase {
   }
 
   @Test
-  // @AwaitsFix(bugUrl="https://issues.apache.org/jira/browse/LUCENE-8276")
   public void testLUCENE8276_case3() {
     // POLYGON((2.693381024483753E-4 -0.001073608118084019,1.5848404608659423E-4
     // -2.6378130512803985E-4,8.981079660799132E-4 -6.4697719116416E-4,-7.934854852157693E-5
@@ -2529,7 +2533,6 @@ public class TestGeoPolygon extends LuceneTestCase {
   }
 
   @Test
-  // @AwaitsFix(bugUrl="https://issues.apache.org/jira/browse/LUCENE-8281")
   public void testLUCENE8281() {
     /*
     [junit4]    > Standard polygon: GeoCompositePolygon: {[GeoConvexPolygon: {planetmodel=PlanetModel.WGS84, points=[[lat=-3.89514302068452E-6, lon=6.597839410815709E-6([X=1.0011188539630433, Y=6.605221429683868E-6, Z=-3.89950111699443E-6])], [lat=-2.8213942160840002E-6, lon=1.608008770581648E-5([X=1.0011188538590383, Y=1.60980789753873E-5, Z=-2.8245509442632E-6])], [lat=3.8977187534179774E-6, lon=1.9713406091526053E-5([X=1.0011188537902969, Y=1.973546251320774E-5, Z=3.902079731596721E-6])], [lat=1.980614928404974E-5, lon=4.069266235973146E-6([X=1.0011188537865057, Y=4.07381914993205E-6, Z=1.982830947192924E-5])], [lat=7.4E-323, lon=0.0([X=1.0011188539924791, Y=0.0, Z=7.4E-323])]], internalEdges={4}}, GeoConvexPolygon: {planetmodel=PlanetModel.WGS84, points=[[lat=-3.89514302068452E-6, lon=6.597839410815709E-6([X=1.0011188539630433, Y=6.605221429683868E-6, Z=-3.89950111699443E-6])], [lat=7.4E-323, lon=0.0([X=1.0011188539924791, Y=0.0, Z=7.4E-323])], [lat=-1.261719663233924E-5, lon=-1.5701544210600105E-5([X=1.001118853788849, Y=-1.5719111944122703E-5, Z=-1.2631313432823314E-5])]], internalEdges={0}}]}
@@ -2596,7 +2599,6 @@ public class TestGeoPolygon extends LuceneTestCase {
   }
 
   @Test
-  // @AwaitsFix(bugUrl="https://issues.apache.org/jira/browse/LUCENE-8280")
   public void testLUCENE8280() {
     /*
     [junit4]   1>       unquantized=[lat=0.16367268756896675, lon=-3.141592653589793([X=-0.9876510422569805, Y=-1.2095236875745584E-16, Z=0.16311061810965483])]
@@ -2644,7 +2646,6 @@ public class TestGeoPolygon extends LuceneTestCase {
   }
 
   @Test
-  // @AwaitsFix(bugUrl="https://issues.apache.org/jira/browse/LUCENE-8337")
   public void testLUCENE8337() {
     /*
        {planetmodel=PlanetModel.WGS84, number of shapes=1, address=c865f21d,
@@ -2704,7 +2705,6 @@ public class TestGeoPolygon extends LuceneTestCase {
 
     final GeoPolygonFactory.PolygonDescription description =
         new GeoPolygonFactory.PolygonDescription(points);
-    final GeoPolygon polygon = GeoPolygonFactory.makeGeoPolygon(PlanetModel.WGS84, description);
     final GeoPolygon largePolygon =
         GeoPolygonFactory.makeLargeGeoPolygon(
             PlanetModel.WGS84, Collections.singletonList(description));
@@ -2777,7 +2777,6 @@ public class TestGeoPolygon extends LuceneTestCase {
   }
 
   @Test
-  // @AwaitsFix(bugUrl="https://issues.apache.org/jira/browse/LUCENE-8451")
   public void testLUCENE8451() {
     // POLYGON((-2.5185339401969213 -24.093993739745027,0.0
     // 8.828539494442529E-27,5.495998489568957E-11 -8.321407453133E-11,2.7174659198424288E-11
@@ -2836,7 +2835,6 @@ public class TestGeoPolygon extends LuceneTestCase {
     assertTrue(polygon.isWithin(point) == largePolygon.isWithin(point));
   }
 
-  // @AwaitsFix(bugUrl="https://issues.apache.org/jira/browse/LUCENE-8512")
   public void testLUCENE8512() {
     // POLYGON((35.4190030282028 -67.85799140154762,35.420218772379776
     // -67.85786846162631,35.42021877254679 -67.85786846168897,35.420218772734266

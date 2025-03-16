@@ -22,7 +22,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.HashMap;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -31,6 +31,8 @@ import org.apache.lucene.store.AlreadyClosedException;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.IOContext;
 import org.apache.lucene.util.Bits;
+import org.apache.lucene.util.CollectionUtil;
+import org.apache.lucene.util.IOFunction;
 import org.apache.lucene.util.IOUtils;
 import org.apache.lucene.util.Version;
 
@@ -42,30 +44,35 @@ public final class StandardDirectoryReader extends DirectoryReader {
   private final boolean applyAllDeletes;
   private final boolean writeAllDeletes;
 
-  /** called only from static open() methods */
+  /** package private constructor, called only from static open() methods. */
   StandardDirectoryReader(
       Directory directory,
       LeafReader[] readers,
       IndexWriter writer,
       SegmentInfos sis,
+      Comparator<LeafReader> leafSorter,
       boolean applyAllDeletes,
       boolean writeAllDeletes)
       throws IOException {
-    super(directory, readers);
+    super(directory, readers, leafSorter);
     this.writer = writer;
     this.segmentInfos = sis;
     this.applyAllDeletes = applyAllDeletes;
     this.writeAllDeletes = writeAllDeletes;
   }
 
-  static DirectoryReader open(final Directory directory, final IndexCommit commit)
+  static DirectoryReader open(
+      final Directory directory, final IndexCommit commit, Comparator<LeafReader> leafSorter)
       throws IOException {
-    return open(directory, Version.MIN_SUPPORTED_MAJOR, commit);
+    return open(directory, Version.MIN_SUPPORTED_MAJOR, commit, leafSorter);
   }
 
   /** called from DirectoryReader.open(...) methods */
   static DirectoryReader open(
-      final Directory directory, int minSupportedMajorVersion, final IndexCommit commit)
+      final Directory directory,
+      int minSupportedMajorVersion,
+      final IndexCommit commit,
+      Comparator<LeafReader> leafSorter)
       throws IOException {
     return new SegmentInfos.FindSegmentsFile<DirectoryReader>(directory) {
       @Override
@@ -84,13 +91,13 @@ public final class StandardDirectoryReader extends DirectoryReader {
         try {
           for (int i = sis.size() - 1; i >= 0; i--) {
             readers[i] =
-                new SegmentReader(sis.info(i), sis.getIndexCreatedVersionMajor(), IOContext.READ);
+                new SegmentReader(
+                    sis.info(i), sis.getIndexCreatedVersionMajor(), IOContext.DEFAULT);
           }
-
           // This may throw CorruptIndexException if there are too many docs, so
           // it must be inside try clause so we close readers in that case:
           DirectoryReader reader =
-              new StandardDirectoryReader(directory, readers, null, sis, false, false);
+              new StandardDirectoryReader(directory, readers, null, sis, leafSorter, false, false);
           success = true;
 
           return reader;
@@ -106,7 +113,7 @@ public final class StandardDirectoryReader extends DirectoryReader {
   /** Used by near real-time search */
   static StandardDirectoryReader open(
       IndexWriter writer,
-      IOUtils.IOFunction<SegmentCommitInfo, SegmentReader> readerFunction,
+      IOFunction<SegmentCommitInfo, SegmentReader> readerFunction,
       SegmentInfos infos,
       boolean applyAllDeletes,
       boolean writeAllDeletes)
@@ -149,6 +156,7 @@ public final class StandardDirectoryReader extends DirectoryReader {
               readers.toArray(new SegmentReader[readers.size()]),
               writer,
               segmentInfos,
+              writer.getConfig().getLeafSorter(),
               applyAllDeletes,
               writeAllDeletes);
       return result;
@@ -169,15 +177,18 @@ public final class StandardDirectoryReader extends DirectoryReader {
    * @lucene.internal
    */
   public static DirectoryReader open(
-      Directory directory, SegmentInfos infos, List<? extends LeafReader> oldReaders)
+      Directory directory,
+      SegmentInfos infos,
+      List<? extends LeafReader> oldReaders,
+      Comparator<LeafReader> leafSorter)
       throws IOException {
 
     // we put the old SegmentReaders in a map, that allows us
     // to lookup a reader using its segment name
-    final Map<String, Integer> segmentReaders =
-        (oldReaders == null ? Collections.emptyMap() : new HashMap<>(oldReaders.size()));
+    Map<String, Integer> segmentReaders = Collections.emptyMap();
 
     if (oldReaders != null) {
+      segmentReaders = CollectionUtil.newHashMap(oldReaders.size());
       // create a Map SegmentName->SegmentReader
       for (int i = 0, c = oldReaders.size(); i < c; i++) {
         final SegmentReader sr = (SegmentReader) oldReaders.get(i);
@@ -219,7 +230,7 @@ public final class StandardDirectoryReader extends DirectoryReader {
                 != oldReader.getSegmentInfo().info.getUseCompoundFile()) {
           // this is a new reader; in case we hit an exception we can decRef it safely
           newReader =
-              new SegmentReader(commitInfo, infos.getIndexCreatedVersionMajor(), IOContext.READ);
+              new SegmentReader(commitInfo, infos.getIndexCreatedVersionMajor(), IOContext.DEFAULT);
           newReaders[i] = newReader;
         } else {
           if (oldReader.isNRT) {
@@ -291,7 +302,8 @@ public final class StandardDirectoryReader extends DirectoryReader {
         }
       }
     }
-    return new StandardDirectoryReader(directory, newReaders, null, infos, false, false);
+    return new StandardDirectoryReader(
+        directory, newReaders, null, infos, leafSorter, false, false);
   }
 
   // TODO: move somewhere shared if it's useful elsewhere
@@ -300,7 +312,9 @@ public final class StandardDirectoryReader extends DirectoryReader {
       if (reader != null) {
         try {
           reader.decRef();
-        } catch (Throwable t) {
+        } catch (
+            @SuppressWarnings("unused")
+            Throwable t) {
           // Ignore so we keep throwing original exception
         }
       }
@@ -406,7 +420,8 @@ public final class StandardDirectoryReader extends DirectoryReader {
   }
 
   DirectoryReader doOpenIfChanged(SegmentInfos infos) throws IOException {
-    return StandardDirectoryReader.open(directory, infos, getSequentialSubReaders());
+    return StandardDirectoryReader.open(
+        directory, infos, getSequentialSubReaders(), subReadersSorter);
   }
 
   @Override
@@ -450,7 +465,9 @@ public final class StandardDirectoryReader extends DirectoryReader {
           if (writer != null) {
             try {
               writer.decRefDeleter(segmentInfos);
-            } catch (AlreadyClosedException ex) {
+            } catch (
+                @SuppressWarnings("unused")
+                AlreadyClosedException ex) {
               // This is OK, it just means our original writer was
               // closed before we were, and this may leave some
               // un-referenced files in the index, which is
@@ -459,7 +476,7 @@ public final class StandardDirectoryReader extends DirectoryReader {
             }
           }
         };
-    try (Closeable finalizer = decRefDeleter) {
+    try (var _ = decRefDeleter) {
       // try to close each reader, even if an exception is thrown
       final List<? extends LeafReader> sequentialSubReaders = getSequentialSubReaders();
       IOUtils.applyToAll(sequentialSubReaders, LeafReader::decRef);
@@ -564,7 +581,7 @@ public final class StandardDirectoryReader extends DirectoryReader {
       };
 
   @Override
-  void notifyReaderClosedListeners() throws IOException {
+  protected void notifyReaderClosedListeners() throws IOException {
     synchronized (readerClosedListeners) {
       IOUtils.applyToAll(readerClosedListeners, l -> l.onClose(cacheHelper.getKey()));
     }

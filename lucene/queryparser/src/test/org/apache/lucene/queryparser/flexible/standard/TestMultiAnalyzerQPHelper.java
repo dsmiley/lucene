@@ -17,14 +17,18 @@
 package org.apache.lucene.queryparser.flexible.standard;
 
 import java.io.IOException;
-import org.apache.lucene.analysis.*;
+import org.apache.lucene.analysis.Analyzer;
+import org.apache.lucene.analysis.TokenFilter;
+import org.apache.lucene.analysis.TokenStream;
+import org.apache.lucene.analysis.Tokenizer;
 import org.apache.lucene.analysis.tokenattributes.CharTermAttribute;
 import org.apache.lucene.analysis.tokenattributes.OffsetAttribute;
 import org.apache.lucene.analysis.tokenattributes.PositionIncrementAttribute;
 import org.apache.lucene.analysis.tokenattributes.TypeAttribute;
 import org.apache.lucene.queryparser.flexible.core.QueryNodeException;
 import org.apache.lucene.queryparser.flexible.standard.config.StandardQueryConfigHandler;
-import org.apache.lucene.util.LuceneTestCase;
+import org.apache.lucene.tests.analysis.MockTokenizer;
+import org.apache.lucene.tests.util.LuceneTestCase;
 
 /**
  * This test case is a copy of the core Lucene query parser test, it was adapted to use new
@@ -35,7 +39,7 @@ import org.apache.lucene.util.LuceneTestCase;
  */
 public class TestMultiAnalyzerQPHelper extends LuceneTestCase {
 
-  private static int multiToken = 0;
+  private int multiToken = 0;
 
   public void testMultiAnalyzer() throws QueryNodeException {
 
@@ -131,7 +135,7 @@ public class TestMultiAnalyzerQPHelper extends LuceneTestCase {
    * Expands "multi" to "multi" and "multi2", both at the same position, and expands "triplemulti"
    * to "triplemulti", "multi3", and "multi2".
    */
-  private static class MultiAnalyzer extends Analyzer {
+  private class MultiAnalyzer extends Analyzer {
 
     @Override
     public TokenStreamComponents createComponents(String fieldName) {
@@ -140,7 +144,7 @@ public class TestMultiAnalyzerQPHelper extends LuceneTestCase {
     }
   }
 
-  private static final class TestFilter extends TokenFilter {
+  private final class TestFilter extends TokenFilter {
 
     private String prevType;
     private int prevStartOffset;
@@ -157,7 +161,7 @@ public class TestMultiAnalyzerQPHelper extends LuceneTestCase {
     }
 
     @Override
-    public final boolean incrementToken() throws java.io.IOException {
+    public boolean incrementToken() throws java.io.IOException {
       if (multiToken > 0) {
         termAtt.setEmpty().append("multi" + (multiToken + 1));
         offsetAtt.setOffset(prevStartOffset, prevEndOffset);

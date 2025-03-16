@@ -18,8 +18,6 @@ package org.apache.lucene.codecs.bloom;
 
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -44,9 +42,8 @@ import org.apache.lucene.index.TermsEnum;
 import org.apache.lucene.store.ChecksumIndexInput;
 import org.apache.lucene.store.DataOutput;
 import org.apache.lucene.store.IndexOutput;
-import org.apache.lucene.util.Accountable;
-import org.apache.lucene.util.Accountables;
 import org.apache.lucene.util.BytesRef;
+import org.apache.lucene.util.IOBooleanSupplier;
 import org.apache.lucene.util.IOUtils;
 import org.apache.lucene.util.automaton.CompiledAutomaton;
 
@@ -57,8 +54,9 @@ import org.apache.lucene.util.automaton.CompiledAutomaton;
  *
  * <p>A choice of {@link BloomFilterFactory} can be passed to tailor Bloom Filter settings on a
  * per-field basis. The default configuration is {@link DefaultBloomFilterFactory} which allocates a
- * ~8mb bitset and hashes values using {@link MurmurHash2}. This should be suitable for most
- * purposes.
+ * ~8mb bitset and hashes values using {@link
+ * org.apache.lucene.util.StringHelper#murmurhash3_x64_128(BytesRef)}. This should be suitable for
+ * most purposes.
  *
  * <p>The format of the blm file is as follows:
  *
@@ -87,8 +85,8 @@ public final class BloomFilteringPostingsFormat extends PostingsFormat {
   /** Extension of Bloom Filters file */
   static final String BLOOM_EXTENSION = "blm";
 
-  BloomFilterFactory bloomFilterFactory = new DefaultBloomFilterFactory();
-  private PostingsFormat delegatePostingsFormat;
+  private final BloomFilterFactory bloomFilterFactory;
+  private final PostingsFormat delegatePostingsFormat;
 
   /**
    * Creates Bloom filters for a selection of fields created in the index. This is recorded as a set
@@ -124,7 +122,7 @@ public final class BloomFilteringPostingsFormat extends PostingsFormat {
   // Used only by core Lucene at read-time via Service Provider instantiation -
   // do not use at Write-time in application code.
   public BloomFilteringPostingsFormat() {
-    super(BLOOM_CODEC_NAME);
+    this(null, new DefaultBloomFilterFactory());
   }
 
   @Override
@@ -156,7 +154,7 @@ public final class BloomFilteringPostingsFormat extends PostingsFormat {
       ChecksumIndexInput bloomIn = null;
       boolean success = false;
       try {
-        bloomIn = state.directory.openChecksumInput(bloomFileName, state.context);
+        bloomIn = state.directory.openChecksumInput(bloomFileName);
         CodecUtil.checkIndexHeader(
             bloomIn,
             BLOOM_CODEC_NAME,
@@ -319,12 +317,21 @@ public final class BloomFilteringPostingsFormat extends PostingsFormat {
       }
 
       @Override
-      public boolean seekExact(BytesRef text) throws IOException {
+      public IOBooleanSupplier prepareSeekExact(BytesRef text) throws IOException {
         // The magical fail-fast speed up that is the entire point of all of
         // this code - save a disk seek if there is a match on an in-memory
         // structure
         // that may occasionally give a false positive but guaranteed no false
         // negatives
+        if (filter.contains(text) == ContainsResult.NO) {
+          return null;
+        }
+        return delegate().prepareSeekExact(text);
+      }
+
+      @Override
+      public boolean seekExact(BytesRef text) throws IOException {
+        // See #prepareSeekExact
         if (filter.contains(text) == ContainsResult.NO) {
           return false;
         }
@@ -370,27 +377,11 @@ public final class BloomFilteringPostingsFormat extends PostingsFormat {
       public ImpactsEnum impacts(int flags) throws IOException {
         return delegate().impacts(flags);
       }
-    }
 
-    @Override
-    public long ramBytesUsed() {
-      long sizeInBytes =
-          ((delegateFieldsProducer != null) ? delegateFieldsProducer.ramBytesUsed() : 0);
-      for (Map.Entry<String, FuzzySet> entry : bloomsByFieldName.entrySet()) {
-        sizeInBytes += entry.getKey().length() * Character.BYTES;
-        sizeInBytes += entry.getValue().ramBytesUsed();
+      @Override
+      public String toString() {
+        return getClass().getSimpleName() + "(filter=" + filter.toString() + ")";
       }
-      return sizeInBytes;
-    }
-
-    @Override
-    public Collection<Accountable> getChildResources() {
-      List<Accountable> resources =
-          new ArrayList<>(Accountables.namedAccountables("field", bloomsByFieldName));
-      if (delegateFieldsProducer != null) {
-        resources.add(Accountables.namedAccountable("delegate", delegateFieldsProducer));
-      }
-      return Collections.unmodifiableList(resources);
     }
 
     @Override

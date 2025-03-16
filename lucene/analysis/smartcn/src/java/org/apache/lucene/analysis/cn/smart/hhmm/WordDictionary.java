@@ -39,6 +39,7 @@ class WordDictionary extends AbstractDictionary {
 
   private WordDictionary() {}
 
+  @SuppressWarnings("NonFinalStaticField")
   private static WordDictionary singleInstance;
 
   /** Large prime number for hash function */
@@ -78,7 +79,9 @@ class WordDictionary extends AbstractDictionary {
       singleInstance = new WordDictionary();
       try {
         singleInstance.load();
-      } catch (IOException e) {
+      } catch (
+          @SuppressWarnings("unused")
+          IOException e) {
         String wordDictRoot = AnalyzerProfile.ANALYSIS_DATA_DIR;
         singleInstance.load(wordDictRoot);
       } catch (ClassNotFoundException e) {
@@ -165,7 +168,9 @@ class WordDictionary extends AbstractDictionary {
       output.writeObject(wordItem_charArrayTable);
       output.writeObject(wordItem_frequencyTable);
       // log.info("serialize core dict.");
-    } catch (Exception e) {
+    } catch (
+        @SuppressWarnings("unused")
+        Exception e) {
       // log.warn(e.getMessage());
     }
   }
@@ -355,7 +360,7 @@ class WordDictionary extends AbstractDictionary {
    * then initialize the value of that position in the address table.
    */
   private boolean setTableIndex(char c, int j) {
-    int index = getAvaliableTableIndex(c);
+    int index = getAvailableTableIndex(c);
     if (index != -1) {
       charIndexTable[index] = c;
       wordIndexTable[index] = (short) j;
@@ -363,7 +368,7 @@ class WordDictionary extends AbstractDictionary {
     } else return false;
   }
 
-  private short getAvaliableTableIndex(char c) {
+  private short getAvailableTableIndex(char c) {
     int hash1 = (int) (hash1(c) % PRIME_INDEX_LENGTH);
     int hash2 = hash2(c) % PRIME_INDEX_LENGTH;
     if (hash1 < 0) hash1 = PRIME_INDEX_LENGTH + hash1;

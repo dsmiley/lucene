@@ -19,18 +19,19 @@ package org.apache.lucene.analysis.minhash;
 
 import java.io.IOException;
 import java.io.StringReader;
-import java.io.UnsupportedEncodingException;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
-import org.apache.lucene.analysis.BaseTokenStreamTestCase;
-import org.apache.lucene.analysis.MockTokenizer;
 import org.apache.lucene.analysis.TokenStream;
 import org.apache.lucene.analysis.Tokenizer;
 import org.apache.lucene.analysis.minhash.MinHashFilter.FixedSizeTreeSet;
 import org.apache.lucene.analysis.minhash.MinHashFilter.LongPair;
 import org.apache.lucene.analysis.tokenattributes.CharTermAttribute;
+import org.apache.lucene.tests.analysis.BaseTokenStreamTestCase;
+import org.apache.lucene.tests.analysis.MockTokenizer;
 import org.apache.lucene.util.automaton.CharacterRunAutomaton;
+import org.apache.lucene.util.automaton.Operations;
 import org.apache.lucene.util.automaton.RegExp;
 import org.junit.Test;
 
@@ -46,16 +47,16 @@ public class TestMinHashFilter extends BaseTokenStreamTestCase {
   }
 
   @Test
-  public void testStringHash() throws UnsupportedEncodingException {
+  public void testStringHash() {
     LongPair hash = new LongPair();
-    byte[] bytes = "woof woof woof woof woof".getBytes("UTF-16LE");
+    byte[] bytes = "woof woof woof woof woof".getBytes(StandardCharsets.UTF_16LE);
     MinHashFilter.murmurhash3_x64_128(bytes, 0, bytes.length, 0, hash);
     assertEquals(7638079586852243959L, hash.val1);
     assertEquals(4378804943379391304L, hash.val2);
   }
 
   @Test
-  public void testSimpleOrder() throws UnsupportedEncodingException {
+  public void testSimpleOrder() {
     LongPair hash1 = new LongPair();
     hash1.val1 = 1;
     hash1.val2 = 2;
@@ -365,8 +366,10 @@ public class TestMinHashFilter extends BaseTokenStreamTestCase {
     MockTokenizer tokenizer =
         new MockTokenizer(
             new CharacterRunAutomaton(
-                new RegExp("[^ \t\r\n]+([ \t\r\n]+[^ \t\r\n]+){" + (shingleSize - 1) + "}")
-                    .toAutomaton()),
+                Operations.determinize(
+                    new RegExp("[^ \t\r\n]+([ \t\r\n]+[^ \t\r\n]+){" + (shingleSize - 1) + "}")
+                        .toAutomaton(),
+                    Operations.DEFAULT_DETERMINIZE_WORK_LIMIT)),
             true);
     tokenizer.setEnableChecks(true);
     if (shingles != null) {

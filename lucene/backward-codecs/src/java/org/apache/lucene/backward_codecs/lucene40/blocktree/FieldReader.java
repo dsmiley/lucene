@@ -16,19 +16,16 @@
  */
 package org.apache.lucene.backward_codecs.lucene40.blocktree;
 
+import static org.apache.lucene.util.fst.FST.readMetadata;
+
 import java.io.IOException;
-import java.util.Collection;
-import java.util.Collections;
 import org.apache.lucene.index.FieldInfo;
 import org.apache.lucene.index.IndexOptions;
 import org.apache.lucene.index.Terms;
 import org.apache.lucene.index.TermsEnum;
 import org.apache.lucene.store.ByteArrayDataInput;
 import org.apache.lucene.store.IndexInput;
-import org.apache.lucene.util.Accountable;
-import org.apache.lucene.util.Accountables;
 import org.apache.lucene.util.BytesRef;
-import org.apache.lucene.util.RamUsageEstimator;
 import org.apache.lucene.util.automaton.CompiledAutomaton;
 import org.apache.lucene.util.fst.ByteSequenceOutputs;
 import org.apache.lucene.util.fst.FST;
@@ -39,13 +36,9 @@ import org.apache.lucene.util.fst.OffHeapFSTStore;
  *
  * @lucene.internal
  */
-public final class FieldReader extends Terms implements Accountable {
+public final class FieldReader extends Terms {
 
   // private final boolean DEBUG = BlockTreeTermsWriter.DEBUG;
-
-  private static final long BASE_RAM_BYTES_USED =
-      RamUsageEstimator.shallowSizeOfInstance(FieldReader.class)
-          + 3 * RamUsageEstimator.shallowSizeOfInstance(BytesRef.class);
 
   final long numTerms;
   final FieldInfo fieldInfo;
@@ -59,6 +52,7 @@ public final class FieldReader extends Terms implements Accountable {
   final Lucene40BlockTreeTermsReader parent;
 
   final FST<BytesRef> index;
+
   // private boolean DEBUG;
 
   FieldReader(
@@ -94,13 +88,17 @@ public final class FieldReader extends Terms implements Accountable {
         (new ByteArrayDataInput(rootCode.bytes, rootCode.offset, rootCode.length)).readVLong()
             >>> Lucene40BlockTreeTermsReader.OUTPUT_FLAGS_NUM_BITS;
     // Initialize FST always off-heap.
-    final IndexInput clone = indexIn.clone();
-    clone.seek(indexStartFP);
+    final FST.FSTMetadata<BytesRef> fstMetadata;
     if (metaIn == indexIn) { // Only true before Lucene 8.6
-      index = new FST<>(clone, clone, ByteSequenceOutputs.getSingleton(), new OffHeapFSTStore());
+      final IndexInput clone = indexIn.clone();
+      clone.seek(indexStartFP);
+      fstMetadata = readMetadata(clone, ByteSequenceOutputs.getSingleton());
+      // FST bytes actually only start after the metadata.
+      indexStartFP = clone.getFilePointer();
     } else {
-      index = new FST<>(metaIn, clone, ByteSequenceOutputs.getSingleton(), new OffHeapFSTStore());
+      fstMetadata = readMetadata(metaIn, ByteSequenceOutputs.getSingleton());
     }
+    index = FST.fromFSTReader(fstMetadata, new OffHeapFSTStore(indexIn, indexStartFP, fstMetadata));
     /*
      if (false) {
      final String dotFileName = segment + "_" + fieldInfo.name + ".dot";
@@ -189,7 +187,7 @@ public final class FieldReader extends Terms implements Accountable {
   @Override
   public TermsEnum intersect(CompiledAutomaton compiled, BytesRef startTerm) throws IOException {
     // if (DEBUG) System.out.println("  FieldReader.intersect startTerm=" +
-    // BlockTreeTermsWriter.brToString(startTerm));
+    // ToStringUtils.bytesRefToString(startTerm));
     // System.out.println("intersect: " + compiled.type + " a=" + compiled.automaton);
     // TODO: we could push "it's a range" or "it's a prefix" down into IntersectTermsEnum?
     // can we optimize knowing that...?
@@ -197,21 +195,11 @@ public final class FieldReader extends Terms implements Accountable {
       throw new IllegalArgumentException("please use CompiledAutomaton.getTermsEnum instead");
     }
     return new IntersectTermsEnum(
-        this, compiled.automaton, compiled.runAutomaton, compiled.commonSuffixRef, startTerm);
-  }
-
-  @Override
-  public long ramBytesUsed() {
-    return BASE_RAM_BYTES_USED + ((index != null) ? index.ramBytesUsed() : 0);
-  }
-
-  @Override
-  public Collection<Accountable> getChildResources() {
-    if (index == null) {
-      return Collections.emptyList();
-    } else {
-      return Collections.singleton(Accountables.namedAccountable("term index", index));
-    }
+        this,
+        compiled.getTransitionAccessor(),
+        compiled.getByteRunnable(),
+        compiled.commonSuffixRef,
+        startTerm);
   }
 
   @Override

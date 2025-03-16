@@ -22,15 +22,18 @@ import static org.apache.lucene.backward_codecs.lucene50.Lucene50PostingsFormat.
 
 import com.carrotsearch.randomizedtesting.generators.RandomNumbers;
 import java.io.IOException;
+import org.apache.lucene.backward_codecs.store.EndiannessReverserUtil;
 import org.apache.lucene.store.ByteBuffersDirectory;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.IOContext;
 import org.apache.lucene.store.IndexInput;
 import org.apache.lucene.store.IndexOutput;
+import org.apache.lucene.tests.util.LuceneTestCase;
+import org.apache.lucene.tests.util.LuceneTestCase.Nightly;
 import org.apache.lucene.util.ArrayUtil;
-import org.apache.lucene.util.LuceneTestCase;
 import org.apache.lucene.util.packed.PackedInts;
 
+@Nightly // N-2 formats are only tested on nightly runs
 public class TestForUtil extends LuceneTestCase {
 
   public void testEncodeDecode() throws IOException {
@@ -57,7 +60,7 @@ public class TestForUtil extends LuceneTestCase {
 
     {
       // encode
-      IndexOutput out = d.createOutput("test.bin", IOContext.DEFAULT);
+      IndexOutput out = EndiannessReverserUtil.createOutput(d, "test.bin", IOContext.DEFAULT);
       final ForUtil forUtil = new ForUtil(acceptableOverheadRatio, out);
 
       for (int i = 0; i < iterations; ++i) {
@@ -73,7 +76,7 @@ public class TestForUtil extends LuceneTestCase {
 
     {
       // decode
-      IndexInput in = d.openInput("test.bin", IOContext.READONCE);
+      IndexInput in = EndiannessReverserUtil.openInput(d, "test.bin", IOContext.READONCE);
       final ForUtil forUtil = new ForUtil(in);
       for (int i = 0; i < iterations; ++i) {
         if (random().nextBoolean()) {

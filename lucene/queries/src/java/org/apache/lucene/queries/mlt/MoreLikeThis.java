@@ -34,6 +34,7 @@ import org.apache.lucene.index.Fields;
 import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.index.IndexableField;
 import org.apache.lucene.index.Term;
+import org.apache.lucene.index.TermVectors;
 import org.apache.lucene.index.Terms;
 import org.apache.lucene.index.TermsEnum;
 import org.apache.lucene.search.BooleanClause;
@@ -93,9 +94,9 @@ import org.apache.lucene.util.PriorityQueue;
  * Reader target = ... // orig source of doc you want to find similarities to
  * Query query = mlt.like( target);
  *
- * Hits hits = is.search(query);
- * // now the usual iteration thru 'hits' - the only thing to watch for is to make sure
- * //you ignore the doc if it matches your 'target' document, as it should be similar to itself
+ * TopDocs topDocs = is.search(query, 10);
+ * // now the usual iteration thru 'topDocs' - the only thing to watch for is to make sure
+ * // you ignore the doc if it matches your 'target' document, as it should be similar to itself
  *
  * </pre>
  *
@@ -291,11 +292,11 @@ public final class MoreLikeThis {
   }
 
   /** Constructor requiring an IndexReader. */
-  public MoreLikeThis(IndexReader ir) {
+  public MoreLikeThis(IndexReader ir) throws IOException {
     this(ir, new ClassicSimilarity());
   }
 
-  public MoreLikeThis(IndexReader ir, TFIDFSimilarity sim) {
+  public MoreLikeThis(IndexReader ir, TFIDFSimilarity sim) throws IOException {
     this.ir = ir;
     this.similarity = sim;
   }
@@ -606,7 +607,9 @@ public final class MoreLikeThis {
 
       try {
         query.add(tq, BooleanClause.Occur.SHOULD);
-      } catch (IndexSearcher.TooManyClauses ignore) {
+      } catch (
+          @SuppressWarnings("unused")
+          IndexSearcher.TooManyClauses ignore) {
         break;
       }
     }
@@ -659,12 +662,12 @@ public final class MoreLikeThis {
 
         if (queue.size() < limit) {
           // there is still space in the queue
-          queue.add(new ScoreTerm(word, fieldName, score, idf, docFreq, tf));
+          queue.add(new ScoreTerm(word, fieldName, score));
         } else {
           ScoreTerm term = queue.top();
           // update the smallest in the queue in place and update the queue.
           if (term.score < score) {
-            term.update(word, fieldName, score, idf, docFreq, tf);
+            term.update(word, fieldName, score);
             queue.updateTop();
           }
         }
@@ -708,8 +711,9 @@ public final class MoreLikeThis {
    */
   private PriorityQueue<ScoreTerm> retrieveTerms(int docNum) throws IOException {
     Map<String, Map<String, Int>> field2termFreqMap = new HashMap<>();
+    TermVectors termVectors = ir.termVectors();
     for (String fieldName : fieldNames) {
-      final Fields vectors = ir.getTermVectors(docNum);
+      final Fields vectors = termVectors.get(docNum);
       final Terms vector;
       if (vectors != null) {
         vector = vectors.terms(fieldName);
@@ -719,7 +723,7 @@ public final class MoreLikeThis {
 
       // field does not store term vector info
       if (vector == null) {
-        Document d = ir.document(docNum);
+        Document d = ir.storedFields().document(docNum);
         IndexableField[] fields = d.getFields(fieldName);
         for (IndexableField field : fields) {
           final String stringValue = field.stringValue();
@@ -752,6 +756,7 @@ public final class MoreLikeThis {
     }
     return createQueue(field2termFreqMap);
   }
+
   /**
    * Adds terms and frequencies found in vector into the Map termFreqMap
    *
@@ -762,7 +767,7 @@ public final class MoreLikeThis {
       Map<String, Map<String, Int>> field2termFreqMap, Terms vector, String fieldName)
       throws IOException {
     Map<String, Int> termFreqMap =
-        field2termFreqMap.computeIfAbsent(fieldName, k -> new HashMap<>());
+        field2termFreqMap.computeIfAbsent(fieldName, _ -> new HashMap<>());
     final TermsEnum termsEnum = vector.iterator();
     final CharsRefBuilder spare = new CharsRefBuilder();
     BytesRef text;
@@ -801,7 +806,7 @@ public final class MoreLikeThis {
           "To use MoreLikeThis without " + "term vectors, you must provide an Analyzer");
     }
     Map<String, Int> termFreqMap =
-        perFieldTermFrequencies.computeIfAbsent(fieldName, k -> new HashMap<>());
+        perFieldTermFrequencies.computeIfAbsent(fieldName, _ -> new HashMap<>());
     try (TokenStream ts = analyzer.tokenStream(fieldName, r)) {
       int tokenCount = 0;
       // for every token
@@ -877,7 +882,9 @@ public final class MoreLikeThis {
     return createQueue(field2termFreqMap);
   }
 
-  /** @see #retrieveInterestingTerms(java.io.Reader, String) */
+  /**
+   * @see #retrieveInterestingTerms(java.io.Reader, String)
+   */
   public String[] retrieveInterestingTerms(int docNum) throws IOException {
     ArrayList<String> al = new ArrayList<>(maxQueryTerms);
     PriorityQueue<ScoreTerm> pq = retrieveTerms(docNum);
@@ -935,26 +942,17 @@ public final class MoreLikeThis {
     String word;
     String topField;
     float score;
-    float idf;
-    int docFreq;
-    int tf;
 
-    ScoreTerm(String word, String topField, float score, float idf, int docFreq, int tf) {
+    ScoreTerm(String word, String topField, float score) {
       this.word = word;
       this.topField = topField;
       this.score = score;
-      this.idf = idf;
-      this.docFreq = docFreq;
-      this.tf = tf;
     }
 
-    void update(String word, String topField, float score, float idf, int docFreq, int tf) {
+    void update(String word, String topField, float score) {
       this.word = word;
       this.topField = topField;
       this.score = score;
-      this.idf = idf;
-      this.docFreq = docFreq;
-      this.tf = tf;
     }
   }
 

@@ -23,7 +23,6 @@ import org.apache.lucene.index.SortedDocValues;
 import org.apache.lucene.queries.function.FunctionValues;
 import org.apache.lucene.queries.function.ValueSource;
 import org.apache.lucene.queries.function.ValueSourceScorer;
-import org.apache.lucene.search.Weight;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.BytesRefBuilder;
 import org.apache.lucene.util.CharsRefBuilder;
@@ -92,7 +91,7 @@ public abstract class DocTermsIndexDocValues extends FunctionValues {
     if (getOrdForDoc(doc) == -1) {
       return false;
     } else {
-      target.copyBytes(termsIndex.binaryValue());
+      target.copyBytes(termsIndex.lookupOrd(termsIndex.ordValue()));
       return true;
     }
   }
@@ -102,7 +101,7 @@ public abstract class DocTermsIndexDocValues extends FunctionValues {
     if (getOrdForDoc(doc) == -1) {
       return null;
     }
-    final BytesRef term = termsIndex.binaryValue();
+    final BytesRef term = termsIndex.lookupOrd(termsIndex.ordValue());
     spareChars.copyUTF8Bytes(term);
     return spareChars.toString();
   }
@@ -117,7 +116,6 @@ public abstract class DocTermsIndexDocValues extends FunctionValues {
 
   @Override
   public ValueSourceScorer getRangeScorer(
-      Weight weight,
       LeafReaderContext readerContext,
       String lowerVal,
       String upperVal,
@@ -151,7 +149,7 @@ public abstract class DocTermsIndexDocValues extends FunctionValues {
     final int ll = lower;
     final int uu = upper;
 
-    return new ValueSourceScorer(weight, readerContext, this) {
+    return new ValueSourceScorer(readerContext, this) {
       @Override
       public boolean matches(int doc) throws IOException {
         if (!exists(doc)) return false;

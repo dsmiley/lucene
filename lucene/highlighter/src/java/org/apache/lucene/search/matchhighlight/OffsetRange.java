@@ -19,7 +19,7 @@ package org.apache.lucene.search.matchhighlight;
 import java.util.Objects;
 
 /** A non-empty range of offset positions. */
-public class OffsetRange {
+public class OffsetRange implements Cloneable {
   /** Start index, inclusive. */
   public final int from;
 
@@ -48,8 +48,7 @@ public class OffsetRange {
   @Override
   public boolean equals(Object other) {
     if (other == this) return true;
-    if (other instanceof OffsetRange) {
-      OffsetRange that = (OffsetRange) other;
+    if (other instanceof OffsetRange that) {
       return from == that.from && to == that.to;
     } else {
       return false;
@@ -68,6 +67,18 @@ public class OffsetRange {
   public OffsetRange slice(int from, int to) {
     assert from >= this.from;
     assert to <= this.to;
+    return new OffsetRange(from, to);
+  }
+
+  /**
+   * @return {@code true} if this range contains or is equal to {@code other}.
+   */
+  public boolean contains(OffsetRange other) {
+    return from <= other.from && to >= other.to;
+  }
+
+  @Override
+  public OffsetRange clone() {
     return new OffsetRange(from, to);
   }
 }

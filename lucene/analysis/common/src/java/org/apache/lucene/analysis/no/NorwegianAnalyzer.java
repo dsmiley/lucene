@@ -18,7 +18,7 @@ package org.apache.lucene.analysis.no;
 
 import java.io.IOException;
 import java.io.Reader;
-import java.nio.charset.StandardCharsets;
+import java.io.UncheckedIOException;
 import org.apache.lucene.analysis.Analyzer;
 import org.apache.lucene.analysis.CharArraySet;
 import org.apache.lucene.analysis.LowerCaseFilter;
@@ -64,12 +64,13 @@ public final class NorwegianAnalyzer extends StopwordAnalyzerBase {
       try {
         DEFAULT_STOP_SET =
             WordlistLoader.getSnowballWordSet(
-                IOUtils.getDecodingReader(
-                    SnowballFilter.class, DEFAULT_STOPWORD_FILE, StandardCharsets.UTF_8));
+                IOUtils.requireResourceNonNull(
+                    SnowballFilter.class.getResourceAsStream(DEFAULT_STOPWORD_FILE),
+                    DEFAULT_STOPWORD_FILE));
       } catch (IOException ex) {
         // default set should always be present as it is part of the
         // distribution (JAR)
-        throw new RuntimeException("Unable to load default stopword set");
+        throw new UncheckedIOException("Unable to load default stopword set", ex);
       }
     }
   }

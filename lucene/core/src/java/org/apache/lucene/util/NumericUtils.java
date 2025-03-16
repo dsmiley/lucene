@@ -61,8 +61,9 @@ public final class NumericUtils {
    * Converts a <code>float</code> value to a sortable signed <code>int</code>. The value is
    * converted by getting their IEEE 754 floating-point &quot;float format&quot; bit layout and then
    * some bits are swapped, to be able to compare the result as int. By this the precision is not
-   * reduced, but the value can easily used as an int. The sort order (including {@link Float#NaN})
-   * is defined by {@link Float#compareTo}; {@code NaN} is greater than positive infinity.
+   * reduced, but the value can easily be used as an int. The sort order (including {@link
+   * Float#NaN}) is defined by {@link Float#compareTo}; {@code NaN} is greater than positive
+   * infinity.
    *
    * @see #sortableIntToFloat
    */
@@ -141,10 +142,7 @@ public final class NumericUtils {
   public static void intToSortableBytes(int value, byte[] result, int offset) {
     // Flip the sign bit, so negative ints sort before positive ints correctly:
     value ^= 0x80000000;
-    result[offset] = (byte) (value >> 24);
-    result[offset + 1] = (byte) (value >> 16);
-    result[offset + 2] = (byte) (value >> 8);
-    result[offset + 3] = (byte) value;
+    BitUtil.VH_BE_INT.set(result, offset, value);
   }
 
   /**
@@ -153,11 +151,7 @@ public final class NumericUtils {
    * @see #intToSortableBytes(int, byte[], int)
    */
   public static int sortableBytesToInt(byte[] encoded, int offset) {
-    int x =
-        ((encoded[offset] & 0xFF) << 24)
-            | ((encoded[offset + 1] & 0xFF) << 16)
-            | ((encoded[offset + 2] & 0xFF) << 8)
-            | (encoded[offset + 3] & 0xFF);
+    int x = (int) BitUtil.VH_BE_INT.get(encoded, offset);
     // Re-flip the sign bit to restore the original value:
     return x ^ 0x80000000;
   }
@@ -171,14 +165,7 @@ public final class NumericUtils {
   public static void longToSortableBytes(long value, byte[] result, int offset) {
     // Flip the sign bit so negative longs sort before positive longs:
     value ^= 0x8000000000000000L;
-    result[offset] = (byte) (value >> 56);
-    result[offset + 1] = (byte) (value >> 48);
-    result[offset + 2] = (byte) (value >> 40);
-    result[offset + 3] = (byte) (value >> 32);
-    result[offset + 4] = (byte) (value >> 24);
-    result[offset + 5] = (byte) (value >> 16);
-    result[offset + 6] = (byte) (value >> 8);
-    result[offset + 7] = (byte) value;
+    BitUtil.VH_BE_LONG.set(result, offset, value);
   }
 
   /**
@@ -187,15 +174,7 @@ public final class NumericUtils {
    * @see #longToSortableBytes(long, byte[], int)
    */
   public static long sortableBytesToLong(byte[] encoded, int offset) {
-    long v =
-        ((encoded[offset] & 0xFFL) << 56)
-            | ((encoded[offset + 1] & 0xFFL) << 48)
-            | ((encoded[offset + 2] & 0xFFL) << 40)
-            | ((encoded[offset + 3] & 0xFFL) << 32)
-            | ((encoded[offset + 4] & 0xFFL) << 24)
-            | ((encoded[offset + 5] & 0xFFL) << 16)
-            | ((encoded[offset + 6] & 0xFFL) << 8)
-            | (encoded[offset + 7] & 0xFFL);
+    long v = (long) BitUtil.VH_BE_LONG.get(encoded, offset);
     // Flip the sign bit back
     v ^= 0x8000000000000000L;
     return v;

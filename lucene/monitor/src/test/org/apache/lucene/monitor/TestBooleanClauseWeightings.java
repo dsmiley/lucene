@@ -26,11 +26,11 @@ import org.apache.lucene.search.BooleanClause;
 import org.apache.lucene.search.BooleanQuery;
 import org.apache.lucene.search.Query;
 import org.apache.lucene.search.TermQuery;
-import org.apache.lucene.util.LuceneTestCase;
+import org.apache.lucene.tests.util.LuceneTestCase;
 
 public class TestBooleanClauseWeightings extends LuceneTestCase {
 
-  private static QueryAnalyzer treeBuilder = new QueryAnalyzer();
+  private static final QueryAnalyzer treeBuilder = new QueryAnalyzer();
 
   public void testExactClausesPreferred() {
     Query bq =

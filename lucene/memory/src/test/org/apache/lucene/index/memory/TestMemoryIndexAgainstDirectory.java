@@ -16,8 +16,6 @@
  */
 package org.apache.lucene.index.memory;
 
-import static org.hamcrest.CoreMatchers.equalTo;
-
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
@@ -29,12 +27,6 @@ import java.util.List;
 import java.util.Set;
 import java.util.function.Supplier;
 import org.apache.lucene.analysis.Analyzer;
-import org.apache.lucene.analysis.BaseTokenStreamTestCase;
-import org.apache.lucene.analysis.CannedTokenStream;
-import org.apache.lucene.analysis.MockAnalyzer;
-import org.apache.lucene.analysis.MockTokenFilter;
-import org.apache.lucene.analysis.MockTokenizer;
-import org.apache.lucene.analysis.Token;
 import org.apache.lucene.analysis.TokenFilter;
 import org.apache.lucene.analysis.TokenStream;
 import org.apache.lucene.analysis.Tokenizer;
@@ -54,6 +46,9 @@ import org.apache.lucene.document.SortedSetDocValuesField;
 import org.apache.lucene.document.StringField;
 import org.apache.lucene.document.TextField;
 import org.apache.lucene.index.*;
+import org.apache.lucene.queries.spans.SpanMultiTermQueryWrapper;
+import org.apache.lucene.queries.spans.SpanOrQuery;
+import org.apache.lucene.queries.spans.SpanQuery;
 import org.apache.lucene.queryparser.classic.QueryParser;
 import org.apache.lucene.search.DocIdSetIterator;
 import org.apache.lucene.search.IndexSearcher;
@@ -62,25 +57,25 @@ import org.apache.lucene.search.Query;
 import org.apache.lucene.search.RegexpQuery;
 import org.apache.lucene.search.TermQuery;
 import org.apache.lucene.search.TopDocs;
-import org.apache.lucene.search.spans.SpanMultiTermQueryWrapper;
-import org.apache.lucene.search.spans.SpanOrQuery;
-import org.apache.lucene.search.spans.SpanQuery;
 import org.apache.lucene.store.ByteBuffersDirectory;
 import org.apache.lucene.store.Directory;
-import org.apache.lucene.util.ByteBlockPool;
-import org.apache.lucene.util.ByteBlockPool.Allocator;
+import org.apache.lucene.tests.analysis.BaseTokenStreamTestCase;
+import org.apache.lucene.tests.analysis.CannedTokenStream;
+import org.apache.lucene.tests.analysis.MockAnalyzer;
+import org.apache.lucene.tests.analysis.MockTokenFilter;
+import org.apache.lucene.tests.analysis.MockTokenizer;
+import org.apache.lucene.tests.analysis.Token;
+import org.apache.lucene.tests.util.LineFileDocs;
+import org.apache.lucene.tests.util.TestUtil;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.IOUtils;
-import org.apache.lucene.util.LineFileDocs;
-import org.apache.lucene.util.RecyclingByteBlockAllocator;
-import org.apache.lucene.util.TestUtil;
 
 /**
  * Verifies that Lucene MemoryIndex and RAM-resident Directory have the same behaviour, returning
  * the same results for queries on some randomish indexes.
  */
 public class TestMemoryIndexAgainstDirectory extends BaseTokenStreamTestCase {
-  private Set<String> queries = new HashSet<>();
+  private final Set<String> queries = new HashSet<>();
 
   @Override
   public void setUp() throws Exception {
@@ -95,7 +90,7 @@ public class TestMemoryIndexAgainstDirectory extends BaseTokenStreamTestCase {
     InputStream stream = getClass().getResourceAsStream(resource);
     BufferedReader reader =
         new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8));
-    String line = null;
+    String line;
     while ((line = reader.readLine()) != null) {
       line = line.trim();
       if (line.length() > 0 && !line.startsWith("#") && !line.startsWith("//")) {
@@ -165,7 +160,7 @@ public class TestMemoryIndexAgainstDirectory extends BaseTokenStreamTestCase {
   }
 
   private void duellReaders(CompositeReader other, LeafReader memIndexReader) throws IOException {
-    Fields memFields = memIndexReader.getTermVectors(0);
+    Fields memFields = memIndexReader.termVectors().get(0);
     for (String field : FieldInfos.getIndexedFields(other)) {
       Terms memTerms = memFields.terms(field);
       Terms iwTerms = memIndexReader.terms(field);
@@ -240,7 +235,7 @@ public class TestMemoryIndexAgainstDirectory extends BaseTokenStreamTestCase {
     for (String query : queries) {
       TopDocs ramDocs = ram.search(qp.parse(query), 1);
       TopDocs memDocs = mem.search(qp.parse(query), 1);
-      assertEquals(query, ramDocs.totalHits.value, memDocs.totalHits.value);
+      assertEquals(query, ramDocs.totalHits.value(), memDocs.totalHits.value());
     }
     reader.close();
   }
@@ -286,7 +281,6 @@ public class TestMemoryIndexAgainstDirectory extends BaseTokenStreamTestCase {
       }
     }
   }
-  ;
 
   /**
    * Some terms to be indexed, in addition to random words. These terms are commonly used in the
@@ -353,14 +347,6 @@ public class TestMemoryIndexAgainstDirectory extends BaseTokenStreamTestCase {
     assertEquals(-1, docid);
     assertTrue(disi.nextDoc() != DocIdSetIterator.NO_MORE_DOCS);
     reader.close();
-  }
-
-  private Allocator randomByteBlockAllocator() {
-    if (random().nextBoolean()) {
-      return new RecyclingByteBlockAllocator();
-    } else {
-      return new ByteBlockPool.DirectAllocator();
-    }
   }
 
   private MemoryIndex randomMemoryIndex() {
@@ -489,7 +475,7 @@ public class TestMemoryIndexAgainstDirectory extends BaseTokenStreamTestCase {
         doc.add(new SortedSetDocValuesField("sorted_set", randomTerm));
       }
       if (random().nextBoolean()) {
-        // randomily just add a normal string field
+        // randomly just add a normal string field
         doc.add(new StringField("sorted_set", randomTerm, Field.Store.NO));
       }
     }
@@ -535,7 +521,6 @@ public class TestMemoryIndexAgainstDirectory extends BaseTokenStreamTestCase {
     assertEquals(controlSortedDocValues.getValueCount(), sortedDocValues.getValueCount());
     assertEquals(0, sortedDocValues.nextDoc());
     assertEquals(0, controlSortedDocValues.nextDoc());
-    assertEquals(controlSortedDocValues.binaryValue(), sortedDocValues.binaryValue());
     assertEquals(controlSortedDocValues.ordValue(), sortedDocValues.ordValue());
     assertEquals(controlSortedDocValues.lookupOrd(0), sortedDocValues.lookupOrd(0));
 
@@ -545,15 +530,13 @@ public class TestMemoryIndexAgainstDirectory extends BaseTokenStreamTestCase {
         controlLeafReader.getSortedSetDocValues("sorted_set");
     assertEquals(0, controlSortedSetDocValues.nextDoc());
     assertEquals(controlSortedSetDocValues.getValueCount(), sortedSetDocValues.getValueCount());
-    for (long controlOrd = controlSortedSetDocValues.nextOrd();
-        controlOrd != SortedSetDocValues.NO_MORE_ORDS;
-        controlOrd = controlSortedSetDocValues.nextOrd()) {
+    for (int i = 0; i < controlSortedSetDocValues.docValueCount(); i++) {
+      long controlOrd = controlSortedSetDocValues.nextOrd();
       assertEquals(controlOrd, sortedSetDocValues.nextOrd());
       assertEquals(
           controlSortedSetDocValues.lookupOrd(controlOrd),
           sortedSetDocValues.lookupOrd(controlOrd));
     }
-    assertEquals(SortedSetDocValues.NO_MORE_ORDS, sortedSetDocValues.nextOrd());
 
     indexReader.close();
     controlIndexReader.close();
@@ -663,7 +646,7 @@ public class TestMemoryIndexAgainstDirectory extends BaseTokenStreamTestCase {
       writer.addDocument(doc);
       writer.close();
       for (IndexableField field : doc) {
-        memory.addField(field.name(), ((Field) field).stringValue(), mockAnalyzer);
+        memory.addField(field.name(), field.stringValue(), mockAnalyzer);
       }
       DirectoryReader competitor = DirectoryReader.open(dir);
       LeafReader memIndexReader = (LeafReader) memory.createSearcher().getIndexReader();
@@ -682,7 +665,7 @@ public class TestMemoryIndexAgainstDirectory extends BaseTokenStreamTestCase {
     memory.addField("foo", new CannedTokenStream(new Token("", 0, 5)));
     IndexSearcher searcher = memory.createSearcher();
     TopDocs docs = searcher.search(new TermQuery(new Term("foo", "")), 10);
-    assertEquals(1, docs.totalHits.value);
+    assertEquals(1, docs.totalHits.value());
     TestUtil.checkReader(searcher.getIndexReader());
   }
 
@@ -718,10 +701,10 @@ public class TestMemoryIndexAgainstDirectory extends BaseTokenStreamTestCase {
     memIndex.addField(field_name, "foo bar foo bar foo", mockAnalyzer);
 
     // compare term vectors
-    Terms ramTv = reader.getTermVector(0, field_name);
+    Terms ramTv = reader.termVectors().get(0, field_name);
     IndexReader memIndexReader = memIndex.createSearcher().getIndexReader();
     TestUtil.checkReader(memIndexReader);
-    Terms memTv = memIndexReader.getTermVector(0, field_name);
+    Terms memTv = memIndexReader.termVectors().get(0, field_name);
 
     compareTermVectors(ramTv, memTv, field_name);
     memIndexReader.close();
@@ -737,39 +720,39 @@ public class TestMemoryIndexAgainstDirectory extends BaseTokenStreamTestCase {
 
     while (termEnum.next() != null) {
       assertNotNull(memTermEnum.next());
-      assertThat(termEnum.totalTermFreq(), equalTo(memTermEnum.totalTermFreq()));
+      assertEquals(memTermEnum.totalTermFreq(), termEnum.totalTermFreq());
 
       PostingsEnum docsPosEnum = termEnum.postings(null, PostingsEnum.POSITIONS);
       PostingsEnum memDocsPosEnum = memTermEnum.postings(null, PostingsEnum.POSITIONS);
       String currentTerm = termEnum.term().utf8ToString();
 
-      assertThat(
+      assertEquals(
           "Token mismatch for field: " + field_name,
-          currentTerm,
-          equalTo(memTermEnum.term().utf8ToString()));
+          memTermEnum.term().utf8ToString(),
+          currentTerm);
 
       docsPosEnum.nextDoc();
       memDocsPosEnum.nextDoc();
 
       int freq = docsPosEnum.freq();
-      assertThat(freq, equalTo(memDocsPosEnum.freq()));
+      assertEquals(memDocsPosEnum.freq(), freq);
       for (int i = 0; i < freq; i++) {
         String failDesc = " (field:" + field_name + " term:" + currentTerm + ")";
         int memPos = memDocsPosEnum.nextPosition();
         int pos = docsPosEnum.nextPosition();
-        assertThat("Position test failed" + failDesc, memPos, equalTo(pos));
-        assertThat(
+        assertEquals("Position test failed" + failDesc, pos, memPos);
+        assertEquals(
             "Start offset test failed" + failDesc,
-            memDocsPosEnum.startOffset(),
-            equalTo(docsPosEnum.startOffset()));
-        assertThat(
+            docsPosEnum.startOffset(),
+            memDocsPosEnum.startOffset());
+        assertEquals(
             "End offset test failed" + failDesc,
-            memDocsPosEnum.endOffset(),
-            equalTo(docsPosEnum.endOffset()));
-        assertThat(
+            docsPosEnum.endOffset(),
+            memDocsPosEnum.endOffset());
+        assertEquals(
             "Missing payload test failed" + failDesc,
             docsPosEnum.getPayload(),
-            equalTo(docsPosEnum.getPayload()));
+            memDocsPosEnum.getPayload());
       }
     }
     assertNull("Still some tokens not processed", memTermEnum.next());

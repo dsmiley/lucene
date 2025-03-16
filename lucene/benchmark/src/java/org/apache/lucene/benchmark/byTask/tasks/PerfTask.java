@@ -156,37 +156,47 @@ public abstract class PerfTask implements Cloneable {
    */
   public abstract int doLogic() throws Exception;
 
-  /** @return Returns the name. */
+  /**
+   * @return Returns the name.
+   */
   public String getName() {
     if (params == null) {
       return name;
     }
-    return new StringBuilder(name).append('(').append(params).append(')').toString();
+    return name + '(' + params + ')';
   }
 
-  /** @param name The name to set. */
+  /**
+   * @param name The name to set.
+   */
   protected void setName(String name) {
     this.name = name;
   }
 
-  /** @return Returns the run data. */
+  /**
+   * @return Returns the run data.
+   */
   public PerfRunData getRunData() {
     return runData;
   }
 
-  /** @return Returns the depth. */
+  /**
+   * @return Returns the depth.
+   */
   public int getDepth() {
     return depth;
   }
 
-  /** @param depth The depth to set. */
+  /**
+   * @param depth The depth to set.
+   */
   public void setDepth(int depth) {
     this.depth = depth;
   }
 
   // compute a blank string padding for printing this task indented by its depth
   String getPadding() {
-    char c[] = new char[4 * getDepth()];
+    char[] c = new char[4 * getDepth()];
     for (int i = 0; i < c.length; i++) c[i] = ' ';
     return new String(c);
   }
@@ -209,7 +219,9 @@ public abstract class PerfTask implements Cloneable {
     return sb.toString();
   }
 
-  /** @return Returns the maxDepthLogStart. */
+  /**
+   * @return Returns the maxDepthLogStart.
+   */
   int getMaxDepthLogStart() {
     return maxDepthLogStart;
   }
@@ -285,7 +297,9 @@ public abstract class PerfTask implements Cloneable {
     this.params = params;
   }
 
-  /** @return Returns the Params. */
+  /**
+   * @return Returns the Params.
+   */
   public String getParams() {
     return params;
   }

@@ -18,8 +18,8 @@ package org.apache.lucene.search.join;
 
 import java.io.IOException;
 import java.io.PrintStream;
-import org.apache.lucene.index.BinaryDocValues;
 import org.apache.lucene.index.LeafReaderContext;
+import org.apache.lucene.index.SortedDocValues;
 import org.apache.lucene.index.SortedSetDocValues;
 import org.apache.lucene.search.Collector;
 import org.apache.lucene.search.LeafCollector;
@@ -43,6 +43,9 @@ interface GenericTermsCollector extends Collector {
         return wrap(new TermsCollector.MV(mvFunction));
       case Avg:
         return new MV.Avg(mvFunction);
+      case Max:
+      case Min:
+      case Total:
       default:
         return new MV(mvFunction, mode);
     }
@@ -91,6 +94,11 @@ interface GenericTermsCollector extends Collector {
         }
 
         @Override
+        public int docValueCount() {
+          return target.docValueCount();
+        }
+
+        @Override
         public BytesRef lookupOrd(long ord) throws IOException {
           final BytesRef val = target.lookupOrd(ord);
           out.println(val.toString() + ", ");
@@ -106,13 +114,16 @@ interface GenericTermsCollector extends Collector {
   }
 
   static GenericTermsCollector createCollectorSV(
-      Function<BinaryDocValues> svFunction, ScoreMode mode) {
+      Function<SortedDocValues> svFunction, ScoreMode mode) {
 
     switch (mode) {
       case None:
         return wrap(new TermsCollector.SV(svFunction));
       case Avg:
         return new SV.Avg(svFunction);
+      case Max:
+      case Min:
+      case Total:
       default:
         return new SV(svFunction, mode);
     }

@@ -29,6 +29,8 @@ import java.io.IOException;
 import java.lang.invoke.MethodHandles;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import javax.swing.BorderFactory;
 import javax.swing.BoxLayout;
 import javax.swing.JButton;
@@ -39,7 +41,6 @@ import javax.swing.JScrollPane;
 import javax.swing.JSeparator;
 import javax.swing.JTextArea;
 import javax.swing.SwingWorker;
-import org.apache.logging.log4j.Logger;
 import org.apache.lucene.index.CheckIndex;
 import org.apache.lucene.luke.app.DirectoryHandler;
 import org.apache.lucene.luke.app.DirectoryObserver;
@@ -64,6 +65,7 @@ public final class CheckIndexDialogFactory implements DialogOpener.DialogFactory
 
   private static final Logger log = LoggerFactory.getLogger(MethodHandles.lookup().lookupClass());
 
+  @SuppressWarnings("NonFinalStaticField")
   private static CheckIndexDialogFactory instance;
 
   private final Preferences prefs;
@@ -183,7 +185,7 @@ public final class CheckIndexDialogFactory implements DialogOpener.DialogFactory
     JButton closeBtn = new JButton(MessageUtils.getLocalizedMessage("button.close"));
     closeBtn.setFont(StyleConstants.FONT_BUTTON_LARGE);
     closeBtn.setMargin(new Insets(3, 0, 3, 0));
-    closeBtn.addActionListener(e -> dialog.dispose());
+    closeBtn.addActionListener(_ -> dialog.dispose());
     execButtons.add(closeBtn);
     panel.add(execButtons);
 
@@ -304,7 +306,7 @@ public final class CheckIndexDialogFactory implements DialogOpener.DialogFactory
                 }
                 status = st;
               } catch (Exception e) {
-                log.error("Error checking index", e);
+                log.log(Level.SEVERE, "Error checking index", e);
                 statusLbl.setText(MessageUtils.getLocalizedMessage("message.error.unknown"));
               }
             }

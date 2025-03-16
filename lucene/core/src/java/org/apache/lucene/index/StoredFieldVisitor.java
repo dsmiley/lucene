@@ -22,7 +22,7 @@ import org.apache.lucene.document.DocumentStoredFieldVisitor;
 
 /**
  * Expert: provides a low-level means of accessing the stored field values in an index. See {@link
- * IndexReader#document(int, StoredFieldVisitor)}.
+ * StoredFields#document(int, StoredFieldVisitor)}.
  *
  * <p><b>NOTE</b>: a {@code StoredFieldVisitor} implementation should not try to load or visit other
  * stored documents in the same reader because the implementation of stored fields for most codecs
@@ -30,7 +30,7 @@ import org.apache.lucene.document.DocumentStoredFieldVisitor;
  *
  * <p>See {@link DocumentStoredFieldVisitor}, which is a <code>StoredFieldVisitor</code> that builds
  * the {@link Document} containing all stored fields. This is used by {@link
- * IndexReader#document(int)}.
+ * StoredFields#document(int)}.
  *
  * @lucene.experimental
  */
@@ -38,6 +38,21 @@ public abstract class StoredFieldVisitor {
 
   /** Sole constructor. (For invocation by subclass constructors, typically implicit.) */
   protected StoredFieldVisitor() {}
+
+  /**
+   * Expert: Process a binary field directly from the {@link StoredFieldDataInput}. Implementors of
+   * this method must read {@code StoredFieldDataInput#length} bytes from the given {@link
+   * StoredFieldDataInput}. The default implementation reads all bytes in a newly created byte array
+   * and calls {@link #binaryField(FieldInfo, byte[])}.
+   *
+   * @param value the stored field data input.
+   */
+  public void binaryField(FieldInfo fieldInfo, StoredFieldDataInput value) throws IOException {
+    int length = value.length();
+    final byte[] data = new byte[length];
+    value.getDataInput().readBytes(data, 0, value.getLength());
+    binaryField(fieldInfo, data);
+  }
 
   /**
    * Process a binary field.
@@ -49,7 +64,7 @@ public abstract class StoredFieldVisitor {
   /** Process a string field. */
   public void stringField(FieldInfo fieldInfo, String value) throws IOException {}
 
-  /** Process a int numeric field. */
+  /** Process an int numeric field. */
   public void intField(FieldInfo fieldInfo, int value) throws IOException {}
 
   /** Process a long numeric field. */
@@ -69,7 +84,7 @@ public abstract class StoredFieldVisitor {
   public abstract Status needsField(FieldInfo fieldInfo) throws IOException;
 
   /** Enumeration of possible return values for {@link #needsField}. */
-  public static enum Status {
+  public enum Status {
     /** YES: the field should be visited. */
     YES,
     /** NO: don't visit this field, but continue processing fields for this document. */

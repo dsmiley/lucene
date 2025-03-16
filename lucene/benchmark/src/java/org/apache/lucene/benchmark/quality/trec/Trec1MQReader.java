@@ -67,7 +67,7 @@ public class Trec1MQReader {
           continue;
         }
         // id
-        int k = line.indexOf(":");
+        int k = line.indexOf(':');
         String id = line.substring(0, k).trim();
         // qtext
         String qtext = line.substring(k + 1).trim();
@@ -82,7 +82,7 @@ public class Trec1MQReader {
       reader.close();
     }
     // sort result array (by ID)
-    QualityQuery qq[] = res.toArray(new QualityQuery[0]);
+    QualityQuery[] qq = res.toArray(new QualityQuery[0]);
     Arrays.sort(qq);
     return qq;
   }

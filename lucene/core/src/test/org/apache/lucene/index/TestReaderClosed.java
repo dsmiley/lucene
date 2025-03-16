@@ -17,16 +17,18 @@
 package org.apache.lucene.index;
 
 import java.util.concurrent.RejectedExecutionException;
-import org.apache.lucene.analysis.MockAnalyzer;
-import org.apache.lucene.analysis.MockTokenizer;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field;
 import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.TermRangeQuery;
 import org.apache.lucene.store.AlreadyClosedException;
 import org.apache.lucene.store.Directory;
-import org.apache.lucene.util.LuceneTestCase;
-import org.apache.lucene.util.TestUtil;
+import org.apache.lucene.tests.analysis.MockAnalyzer;
+import org.apache.lucene.tests.analysis.MockTokenizer;
+import org.apache.lucene.tests.index.OwnCacheKeyMultiReader;
+import org.apache.lucene.tests.index.RandomIndexWriter;
+import org.apache.lucene.tests.util.LuceneTestCase;
+import org.apache.lucene.tests.util.TestUtil;
 
 public class TestReaderClosed extends LuceneTestCase {
   private DirectoryReader reader;
@@ -67,9 +69,13 @@ public class TestReaderClosed extends LuceneTestCase {
     reader.close();
     try {
       searcher.search(query, 5);
-    } catch (AlreadyClosedException ace) {
+    } catch (
+        @SuppressWarnings("unused")
+        AlreadyClosedException ace) {
       // expected
-    } catch (RejectedExecutionException ree) {
+    } catch (
+        @SuppressWarnings("unused")
+        RejectedExecutionException ree) {
       // expected if the searcher has been created with threads since LuceneTestCase
       // closes the thread-pool in a reader close listener
     }

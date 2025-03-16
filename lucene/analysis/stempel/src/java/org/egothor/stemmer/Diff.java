@@ -65,8 +65,8 @@ package org.egothor.stemmer;
 public class Diff {
   int sizex = 0;
   int sizey = 0;
-  int net[][];
-  int way[][];
+  int[][] net;
+  int[][] way;
 
   int INSERT;
   int DELETE;
@@ -140,9 +140,13 @@ public class Diff {
         }
         pos--;
       }
-    } catch (StringIndexOutOfBoundsException x) {
+    } catch (
+        @SuppressWarnings("unused")
+        StringIndexOutOfBoundsException x) {
       // x.printStackTrace();
-    } catch (ArrayIndexOutOfBoundsException x) {
+    } catch (
+        @SuppressWarnings("unused")
+        ArrayIndexOutOfBoundsException x) {
       // x.printStackTrace();
     }
   }
@@ -163,7 +167,7 @@ public class Diff {
     int y;
     int maxx;
     int maxy;
-    int go[] = new int[4];
+    int[] go = new int[4];
     final int X = 1;
     final int Y = 2;
     final int R = 3;
@@ -241,7 +245,7 @@ public class Diff {
           deletes++;
           x--;
           break;
-          // delete
+        // delete
         case Y:
           if (deletes != base) {
             result.append('D').append(deletes);
@@ -254,7 +258,7 @@ public class Diff {
           result.append('I');
           result.append(b.charAt(--y));
           break;
-          // insert
+        // insert
         case R:
           if (deletes != base) {
             result.append('D').append(deletes);
@@ -268,7 +272,7 @@ public class Diff {
           result.append(b.charAt(--y));
           x--;
           break;
-          // replace
+        // replace
         case D:
           if (deletes != base) {
             result.append('D').append(deletes);

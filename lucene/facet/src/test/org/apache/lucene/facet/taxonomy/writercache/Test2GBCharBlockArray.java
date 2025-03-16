@@ -16,9 +16,9 @@
  */
 package org.apache.lucene.facet.taxonomy.writercache;
 
-import org.apache.lucene.util.LuceneTestCase;
-import org.apache.lucene.util.LuceneTestCase.Monster;
-import org.apache.lucene.util.TestUtil;
+import org.apache.lucene.tests.util.LuceneTestCase;
+import org.apache.lucene.tests.util.LuceneTestCase.Monster;
+import org.apache.lucene.tests.util.TestUtil;
 
 @Monster("uses lots of space and takes a few minutes")
 public class Test2GBCharBlockArray extends LuceneTestCase {
@@ -35,7 +35,9 @@ public class Test2GBCharBlockArray extends LuceneTestCase {
       count++;
       try {
         array.append(chars, 0, size);
-      } catch (IllegalStateException ise) {
+      } catch (
+          @SuppressWarnings("unused")
+          IllegalStateException ise) {
         assertTrue(count * (long) size + blockSize > Integer.MAX_VALUE);
         break;
       }

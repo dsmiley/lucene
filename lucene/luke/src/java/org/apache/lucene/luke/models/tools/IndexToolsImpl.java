@@ -17,10 +17,11 @@
 
 package org.apache.lucene.luke.models.tools;
 
+import static java.nio.charset.StandardCharsets.UTF_8;
+
 import java.io.BufferedWriter;
 import java.io.IOException;
 import java.io.PrintStream;
-import java.nio.charset.Charset;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -190,12 +191,15 @@ public final class IndexToolsImpl extends LukeModel implements IndexTools {
       if (writer != null) {
         try {
           writer.close();
-        } catch (IOException e) {
+        } catch (
+            @SuppressWarnings("unused")
+            IOException e) {
         }
       }
     }
   }
 
+  @Override
   public String exportTerms(String destDir, String field, String delimiter) {
     String filename = "terms_" + field + "_" + System.currentTimeMillis() + ".out";
     Path path = Paths.get(destDir, filename);
@@ -205,7 +209,7 @@ public final class IndexToolsImpl extends LukeModel implements IndexTools {
         throw new LukeException(
             String.format(Locale.US, "Field %s does not contain any terms to be exported", field));
       }
-      try (BufferedWriter writer = Files.newBufferedWriter(path, Charset.forName("UTF-8"))) {
+      try (BufferedWriter writer = Files.newBufferedWriter(path, UTF_8)) {
         TermsEnum termsEnum = terms.iterator();
         BytesRef term;
         while (!Thread.currentThread().isInterrupted() && (term = termsEnum.next()) != null) {

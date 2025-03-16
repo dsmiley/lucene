@@ -19,18 +19,18 @@ package org.apache.lucene.backward_codecs.lucene50.compressing;
 import java.io.EOFException;
 import java.io.IOException;
 import java.util.Arrays;
-import java.util.Collection;
-import java.util.Collections;
+import org.apache.lucene.backward_codecs.compressing.CompressionMode;
+import org.apache.lucene.backward_codecs.compressing.Decompressor;
+import org.apache.lucene.backward_codecs.store.EndiannessReverserUtil;
 import org.apache.lucene.codecs.CodecUtil;
 import org.apache.lucene.codecs.StoredFieldsReader;
-import org.apache.lucene.codecs.compressing.CompressionMode;
-import org.apache.lucene.codecs.compressing.Decompressor;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.index.CorruptIndexException;
 import org.apache.lucene.index.FieldInfo;
 import org.apache.lucene.index.FieldInfos;
 import org.apache.lucene.index.IndexFileNames;
 import org.apache.lucene.index.SegmentInfo;
+import org.apache.lucene.index.StoredFieldDataInput;
 import org.apache.lucene.index.StoredFieldVisitor;
 import org.apache.lucene.store.AlreadyClosedException;
 import org.apache.lucene.store.ByteArrayDataInput;
@@ -39,8 +39,6 @@ import org.apache.lucene.store.DataInput;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.IOContext;
 import org.apache.lucene.store.IndexInput;
-import org.apache.lucene.util.Accountable;
-import org.apache.lucene.util.Accountables;
 import org.apache.lucene.util.ArrayUtil;
 import org.apache.lucene.util.BitUtil;
 import org.apache.lucene.util.BytesRef;
@@ -57,10 +55,13 @@ public final class Lucene50CompressingStoredFieldsReader extends StoredFieldsRea
 
   /** Extension of stored fields file */
   public static final String FIELDS_EXTENSION = "fdt";
+
   /** Extension of stored fields index */
   public static final String INDEX_EXTENSION = "fdx";
+
   /** Extension of stored fields meta */
   public static final String META_EXTENSION = "fdm";
+
   /** Codec name for the index. */
   public static final String INDEX_CODEC_NAME = "Lucene85FieldsIndex";
 
@@ -76,10 +77,17 @@ public final class Lucene50CompressingStoredFieldsReader extends StoredFieldsRea
 
   static final int VERSION_START = 1;
   static final int VERSION_OFFHEAP_INDEX = 2;
+
   /** Version where all metadata were moved to the meta file. */
   static final int VERSION_META = 3;
 
-  static final int VERSION_CURRENT = VERSION_META;
+  /**
+   * Version where numChunks is explicitly recorded in meta file and a dirty chunk bit is recorded
+   * in each chunk
+   */
+  static final int VERSION_NUM_CHUNKS = 4;
+
+  static final int VERSION_CURRENT = VERSION_NUM_CHUNKS;
   static final int META_VERSION_START = 0;
 
   // for compression of timestamps
@@ -102,8 +110,6 @@ public final class Lucene50CompressingStoredFieldsReader extends StoredFieldsRea
   private final int numDocs;
   private final boolean merging;
   private final BlockState state;
-  private final long numDirtyChunks; // number of incomplete compressed blocks written
-  private final long numDirtyDocs; // cumulative number of missing docs in incomplete chunks
   private boolean closed;
 
   // used by clone
@@ -119,8 +125,6 @@ public final class Lucene50CompressingStoredFieldsReader extends StoredFieldsRea
     this.compressionMode = reader.compressionMode;
     this.decompressor = reader.decompressor.clone();
     this.numDocs = reader.numDocs;
-    this.numDirtyChunks = reader.numDirtyChunks;
-    this.numDirtyDocs = reader.numDirtyDocs;
     this.merging = merging;
     this.state = new BlockState();
     this.closed = false;
@@ -147,7 +151,7 @@ public final class Lucene50CompressingStoredFieldsReader extends StoredFieldsRea
     ChecksumIndexInput metaIn = null;
     try {
       // Open the data file
-      fieldsStream = d.openInput(fieldsStreamFN, context);
+      fieldsStream = EndiannessReverserUtil.openInput(d, fieldsStreamFN, context);
       version =
           CodecUtil.checkIndexHeader(
               fieldsStream, formatName, VERSION_START, VERSION_CURRENT, si.getId(), segmentSuffix);
@@ -157,7 +161,7 @@ public final class Lucene50CompressingStoredFieldsReader extends StoredFieldsRea
       if (version >= VERSION_OFFHEAP_INDEX) {
         final String metaStreamFN =
             IndexFileNames.segmentFileName(segment, segmentSuffix, META_EXTENSION);
-        metaIn = d.openChecksumInput(metaStreamFN, IOContext.READONCE);
+        metaIn = EndiannessReverserUtil.openChecksumInput(d, metaStreamFN, IOContext.READONCE);
         CodecUtil.checkIndexHeader(
             metaIn,
             INDEX_CODEC_NAME + "Meta",
@@ -190,7 +194,8 @@ public final class Lucene50CompressingStoredFieldsReader extends StoredFieldsRea
       if (version < VERSION_OFFHEAP_INDEX) {
         // Load the index into memory
         final String indexName = IndexFileNames.segmentFileName(segment, segmentSuffix, "fdx");
-        try (ChecksumIndexInput indexStream = d.openChecksumInput(indexName, context)) {
+        try (ChecksumIndexInput indexStream =
+            EndiannessReverserUtil.openChecksumInput(d, indexName, context)) {
           Throwable priorE = null;
           try {
             assert formatName.endsWith("Data");
@@ -233,14 +238,14 @@ public final class Lucene50CompressingStoredFieldsReader extends StoredFieldsRea
       this.maxPointer = maxPointer;
       this.indexReader = indexReader;
 
+      if (version >= VERSION_NUM_CHUNKS) {
+        // discard num_chunks
+        metaIn.readVLong();
+      }
       if (version >= VERSION_META) {
-        numDirtyChunks = metaIn.readVLong();
-        numDirtyDocs = metaIn.readVLong();
-      } else {
-        // Old versions of this format did not record numDirtyDocs. Since bulk
-        // merges are disabled on version increments anyway, we make no effort
-        // to get valid values of numDirtyChunks and numDirtyDocs.
-        numDirtyChunks = numDirtyDocs = -1;
+        // consume dirty chunks/docs stats we wrote
+        metaIn.readVLong();
+        metaIn.readVLong();
       }
 
       if (metaIn != null) {
@@ -263,7 +268,9 @@ public final class Lucene50CompressingStoredFieldsReader extends StoredFieldsRea
     }
   }
 
-  /** @throws AlreadyClosedException if this FieldsReader is closed */
+  /**
+   * @throws AlreadyClosedException if this FieldsReader is closed
+   */
   private void ensureOpen() throws AlreadyClosedException {
     if (closed) {
       throw new AlreadyClosedException("this FieldsReader is closed");
@@ -284,9 +291,7 @@ public final class Lucene50CompressingStoredFieldsReader extends StoredFieldsRea
     switch (bits & TYPE_MASK) {
       case BYTE_ARR:
         int length = in.readVInt();
-        byte[] data = new byte[length];
-        in.readBytes(data, 0, length);
-        visitor.binaryField(info, data);
+        visitor.binaryField(info, new StoredFieldDataInput(in, length));
         break;
       case STRING:
         visitor.stringField(info, in.readString());
@@ -484,7 +489,7 @@ public final class Lucene50CompressingStoredFieldsReader extends StoredFieldsRea
     private void doReset(int docID) throws IOException {
       docBase = fieldsStream.readVInt();
       final int token = fieldsStream.readVInt();
-      chunkDocs = token >>> 1;
+      chunkDocs = version >= VERSION_NUM_CHUNKS ? token >>> 2 : token >>> 1;
       if (contains(docID) == false || docBase + chunkDocs > numDocs) {
         throw new CorruptIndexException(
             "Corrupted: docID="
@@ -536,7 +541,7 @@ public final class Lucene50CompressingStoredFieldsReader extends StoredFieldsRea
         if (bitsPerLength == 0) {
           final int length = fieldsStream.readVInt();
           for (int i = 0; i < chunkDocs; ++i) {
-            offsets[1 + i] = (1 + i) * length;
+            offsets[1 + i] = (1 + i) * (long) length;
           }
         } else if (bitsPerStoredFields > 31) {
           throw new CorruptIndexException("bitsPerLength=" + bitsPerLength, fieldsStream);
@@ -686,11 +691,12 @@ public final class Lucene50CompressingStoredFieldsReader extends StoredFieldsRea
         documentInput = new ByteArrayDataInput(bytes.bytes, bytes.offset, bytes.length);
       }
 
-      return new SerializedDocument(documentInput, length, numStoredFields);
+      return new SerializedDocument(
+          EndiannessReverserUtil.wrapDataInput(documentInput), length, numStoredFields);
     }
   }
 
-  SerializedDocument document(int docID) throws IOException {
+  SerializedDocument serializedDocument(int docID) throws IOException {
     if (state.contains(docID) == false) {
       fieldsStream.seek(indexReader.getStartPointer(docID));
       state.reset(docID);
@@ -700,9 +706,9 @@ public final class Lucene50CompressingStoredFieldsReader extends StoredFieldsRea
   }
 
   @Override
-  public void visitDocument(int docID, StoredFieldVisitor visitor) throws IOException {
+  public void document(int docID, StoredFieldVisitor visitor) throws IOException {
 
-    final SerializedDocument doc = document(docID);
+    final SerializedDocument doc = serializedDocument(docID);
 
     for (int fieldIDX = 0; fieldIDX < doc.numStoredFields; fieldIDX++) {
       final long infoAndBits = doc.in.readVLong();
@@ -739,66 +745,6 @@ public final class Lucene50CompressingStoredFieldsReader extends StoredFieldsRea
   public StoredFieldsReader getMergeInstance() {
     ensureOpen();
     return new Lucene50CompressingStoredFieldsReader(this, true);
-  }
-
-  int getVersion() {
-    return version;
-  }
-
-  CompressionMode getCompressionMode() {
-    return compressionMode;
-  }
-
-  FieldsIndex getIndexReader() {
-    return indexReader;
-  }
-
-  long getMaxPointer() {
-    return maxPointer;
-  }
-
-  IndexInput getFieldsStream() {
-    return fieldsStream;
-  }
-
-  int getChunkSize() {
-    return chunkSize;
-  }
-
-  long getNumDirtyDocs() {
-    if (version != VERSION_CURRENT) {
-      throw new IllegalStateException(
-          "getNumDirtyDocs should only ever get called when the reader is on the current version");
-    }
-    assert numDirtyDocs >= 0;
-    return numDirtyDocs;
-  }
-
-  long getNumDirtyChunks() {
-    if (version != VERSION_CURRENT) {
-      throw new IllegalStateException(
-          "getNumDirtyChunks should only ever get called when the reader is on the current version");
-    }
-    assert numDirtyChunks >= 0;
-    return numDirtyChunks;
-  }
-
-  int getNumDocs() {
-    return numDocs;
-  }
-
-  int getPackedIntsVersion() {
-    return packedIntsVersion;
-  }
-
-  @Override
-  public long ramBytesUsed() {
-    return indexReader.ramBytesUsed();
-  }
-
-  @Override
-  public Collection<Accountable> getChildResources() {
-    return Collections.singleton(Accountables.namedAccountable("stored field index", indexReader));
   }
 
   @Override

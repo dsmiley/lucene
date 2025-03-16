@@ -17,36 +17,32 @@
 package org.apache.lucene.index;
 
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.List;
 import java.util.Objects;
 import org.apache.lucene.codecs.DocValuesProducer;
 import org.apache.lucene.codecs.FieldsProducer;
+import org.apache.lucene.codecs.KnnVectorsReader;
 import org.apache.lucene.codecs.NormsProducer;
 import org.apache.lucene.codecs.PointsReader;
 import org.apache.lucene.codecs.StoredFieldsReader;
 import org.apache.lucene.codecs.TermVectorsReader;
-import org.apache.lucene.codecs.VectorReader;
-import org.apache.lucene.util.Accountable;
-import org.apache.lucene.util.Accountables;
+import org.apache.lucene.search.KnnCollector;
+import org.apache.lucene.util.Bits;
 
 /** LeafReader implemented by codec APIs. */
-public abstract class CodecReader extends LeafReader implements Accountable {
+public abstract class CodecReader extends LeafReader {
 
   /** Sole constructor. (For invocation by subclass constructors, typically implicit.) */
   protected CodecReader() {}
 
   /**
-   * Expert: retrieve thread-private StoredFieldsReader
+   * Expert: retrieve underlying StoredFieldsReader
    *
    * @lucene.internal
    */
   public abstract StoredFieldsReader getFieldsReader();
 
   /**
-   * Expert: retrieve thread-private TermVectorsReader
+   * Expert: retrieve underlying TermVectorsReader
    *
    * @lucene.internal
    */
@@ -85,34 +81,46 @@ public abstract class CodecReader extends LeafReader implements Accountable {
    *
    * @lucene.internal
    */
-  public abstract VectorReader getVectorReader();
+  public abstract KnnVectorsReader getVectorReader();
 
   @Override
-  public final void document(int docID, StoredFieldVisitor visitor) throws IOException {
-    checkBounds(docID);
-    getFieldsReader().visitDocument(docID, visitor);
+  public final StoredFields storedFields() throws IOException {
+    final StoredFields reader = getFieldsReader();
+    return new StoredFields() {
+      @Override
+      public void prefetch(int docID) throws IOException {
+        // Don't trust the codec to do proper checks
+        Objects.checkIndex(docID, maxDoc());
+        reader.prefetch(docID);
+      }
+
+      @Override
+      public void document(int docID, StoredFieldVisitor visitor) throws IOException {
+        // Don't trust the codec to do proper checks
+        Objects.checkIndex(docID, maxDoc());
+        reader.document(docID, visitor);
+      }
+    };
   }
 
   @Override
-  public final Fields getTermVectors(int docID) throws IOException {
-    TermVectorsReader termVectorsReader = getTermVectorsReader();
-    if (termVectorsReader == null) {
-      return null;
+  public final TermVectors termVectors() throws IOException {
+    TermVectorsReader reader = getTermVectorsReader();
+    if (reader == null) {
+      return TermVectors.EMPTY;
+    } else {
+      return reader;
     }
-    checkBounds(docID);
-    return termVectorsReader.get(docID);
-  }
-
-  private void checkBounds(int docID) {
-    Objects.checkIndex(docID, maxDoc());
   }
 
   @Override
   public final Terms terms(String field) throws IOException {
-    // ensureOpen(); no; getPostingsReader calls this
-    // We could check the FieldInfo IndexOptions but there's no point since
-    //   PostingsReader will simply return null for fields that don't exist or that have no terms
-    // index.
+    ensureOpen();
+    FieldInfo fi = getFieldInfos().fieldInfo(field);
+    if (fi == null || fi.getIndexOptions() == IndexOptions.NONE) {
+      // Field does not exist or does not index postings
+      return null;
+    }
     return getPostingsReader().terms(field);
   }
 
@@ -189,6 +197,16 @@ public abstract class CodecReader extends LeafReader implements Accountable {
   }
 
   @Override
+  public final DocValuesSkipper getDocValuesSkipper(String field) throws IOException {
+    ensureOpen();
+    FieldInfo fi = getFieldInfos().fieldInfo(field);
+    if (fi == null || fi.docValuesSkipIndexType() == DocValuesSkipIndexType.NONE) {
+      return null;
+    }
+    return getDocValuesReader().getSkipper(fi);
+  }
+
+  @Override
   public final NumericDocValues getNormValues(String field) throws IOException {
     ensureOpen();
     FieldInfo fi = getFieldInfos().fieldInfo(field);
@@ -213,107 +231,72 @@ public abstract class CodecReader extends LeafReader implements Accountable {
   }
 
   @Override
-  public final VectorValues getVectorValues(String field) throws IOException {
+  public final FloatVectorValues getFloatVectorValues(String field) throws IOException {
     ensureOpen();
     FieldInfo fi = getFieldInfos().fieldInfo(field);
-    if (fi == null || fi.getVectorDimension() == 0) {
+    if (fi == null
+        || fi.getVectorDimension() == 0
+        || fi.getVectorEncoding() != VectorEncoding.FLOAT32) {
       // Field does not exist or does not index vectors
       return null;
     }
 
-    return getVectorReader().getVectorValues(field);
+    return getVectorReader().getFloatVectorValues(field);
+  }
+
+  @Override
+  public final ByteVectorValues getByteVectorValues(String field) throws IOException {
+    ensureOpen();
+    FieldInfo fi = getFieldInfos().fieldInfo(field);
+    if (fi == null
+        || fi.getVectorDimension() == 0
+        || fi.getVectorEncoding() != VectorEncoding.BYTE) {
+      // Field does not exist or does not index vectors
+      return null;
+    }
+
+    return getVectorReader().getByteVectorValues(field);
+  }
+
+  @Override
+  public final void searchNearestVectors(
+      String field, float[] target, KnnCollector knnCollector, Bits acceptDocs) throws IOException {
+    ensureOpen();
+    FieldInfo fi = getFieldInfos().fieldInfo(field);
+    if (fi == null
+        || fi.getVectorDimension() == 0
+        || fi.getVectorEncoding() != VectorEncoding.FLOAT32) {
+      // Field does not exist or does not index vectors
+      return;
+    }
+    getVectorReader().search(field, target, knnCollector, acceptDocs);
+  }
+
+  @Override
+  public final void searchNearestVectors(
+      String field, byte[] target, KnnCollector knnCollector, Bits acceptDocs) throws IOException {
+    ensureOpen();
+    FieldInfo fi = getFieldInfos().fieldInfo(field);
+    if (fi == null
+        || fi.getVectorDimension() == 0
+        || fi.getVectorEncoding() != VectorEncoding.BYTE) {
+      // Field does not exist or does not index vectors
+      return;
+    }
+    getVectorReader().search(field, target, knnCollector, acceptDocs);
   }
 
   @Override
   protected void doClose() throws IOException {}
 
   @Override
-  public long ramBytesUsed() {
-    ensureOpen();
-
-    // terms/postings
-    long ramBytesUsed = getPostingsReader().ramBytesUsed();
-
-    // norms
-    if (getNormsReader() != null) {
-      ramBytesUsed += getNormsReader().ramBytesUsed();
-    }
-
-    // docvalues
-    if (getDocValuesReader() != null) {
-      ramBytesUsed += getDocValuesReader().ramBytesUsed();
-    }
-
-    // stored fields
-    if (getFieldsReader() != null) {
-      ramBytesUsed += getFieldsReader().ramBytesUsed();
-    }
-
-    // term vectors
-    if (getTermVectorsReader() != null) {
-      ramBytesUsed += getTermVectorsReader().ramBytesUsed();
-    }
-
-    // points
-    if (getPointsReader() != null) {
-      ramBytesUsed += getPointsReader().ramBytesUsed();
-    }
-
-    // vectors
-    if (getVectorReader() != null) {
-      ramBytesUsed += getVectorReader().ramBytesUsed();
-    }
-
-    return ramBytesUsed;
-  }
-
-  @Override
-  public Collection<Accountable> getChildResources() {
-    ensureOpen();
-    final List<Accountable> resources = new ArrayList<>(6);
-
-    // terms/postings
-    resources.add(Accountables.namedAccountable("postings", getPostingsReader()));
-
-    // norms
-    if (getNormsReader() != null) {
-      resources.add(Accountables.namedAccountable("norms", getNormsReader()));
-    }
-
-    // docvalues
-    if (getDocValuesReader() != null) {
-      resources.add(Accountables.namedAccountable("docvalues", getDocValuesReader()));
-    }
-
-    // stored fields
-    if (getFieldsReader() != null) {
-      resources.add(Accountables.namedAccountable("stored fields", getFieldsReader()));
-    }
-
-    // term vectors
-    if (getTermVectorsReader() != null) {
-      resources.add(Accountables.namedAccountable("term vectors", getTermVectorsReader()));
-    }
-
-    // points
-    if (getPointsReader() != null) {
-      resources.add(Accountables.namedAccountable("points", getPointsReader()));
-    }
-
-    // vectors
-    if (getVectorReader() != null) {
-      resources.add(Accountables.namedAccountable("vectors", getVectorReader()));
-    }
-
-    return Collections.unmodifiableList(resources);
-  }
-
-  @Override
   public void checkIntegrity() throws IOException {
     ensureOpen();
 
     // terms/postings
-    getPostingsReader().checkIntegrity();
+    if (getPostingsReader() != null) {
+      getPostingsReader().checkIntegrity();
+    }
 
     // norms
     if (getNormsReader() != null) {

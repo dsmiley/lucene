@@ -27,8 +27,6 @@ import org.apache.lucene.analysis.tokenattributes.PositionIncrementAttribute;
 /** Filter for DoubleMetaphone (supporting secondary codes) */
 public final class DoubleMetaphoneFilter extends TokenFilter {
 
-  private static final String TOKEN_TYPE = "DoubleMetaphone";
-
   private final LinkedList<State> remainingTokens = new LinkedList<>();
   private final DoubleMetaphone encoder = new DoubleMetaphone();
   private final boolean inject;
@@ -41,6 +39,9 @@ public final class DoubleMetaphoneFilter extends TokenFilter {
    */
   public DoubleMetaphoneFilter(TokenStream input, int maxCodeLength, boolean inject) {
     super(input);
+    if (maxCodeLength < 1) {
+      throw new IllegalArgumentException("maxCodeLength must be >=1");
+    }
     this.encoder.setMaxCodeLen(maxCodeLength);
     this.inject = inject;
   }

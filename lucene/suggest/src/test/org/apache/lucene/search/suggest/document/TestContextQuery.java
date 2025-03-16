@@ -26,15 +26,15 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import org.apache.lucene.analysis.Analyzer;
-import org.apache.lucene.analysis.MockAnalyzer;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.index.DirectoryReader;
-import org.apache.lucene.index.RandomIndexWriter;
 import org.apache.lucene.index.Term;
 import org.apache.lucene.store.Directory;
+import org.apache.lucene.tests.analysis.MockAnalyzer;
+import org.apache.lucene.tests.index.RandomIndexWriter;
+import org.apache.lucene.tests.util.LuceneTestCase;
+import org.apache.lucene.tests.util.TestUtil;
 import org.apache.lucene.util.ArrayUtil;
-import org.apache.lucene.util.LuceneTestCase;
-import org.apache.lucene.util.TestUtil;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -464,6 +464,38 @@ public class TestContextQuery extends LuceneTestCase {
         new Entry("suggestion2", "type2", 7 * 2),
         new Entry("suggestion1", "type1", 8 * 1));
 
+    reader.close();
+    iw.close();
+  }
+
+  @Test
+  public void testBigNumberOfContextsQuery() throws Exception {
+    Analyzer analyzer = new MockAnalyzer(random());
+    RandomIndexWriter iw =
+        new RandomIndexWriter(random(), dir, iwcWithSuggestField(analyzer, "suggest_field"));
+    for (int i = 1; i < 1001; i++) {
+      Document document = new Document();
+      document.add(
+          new ContextSuggestField("suggest_field", "suggestion" + i, 1001 - i, "group" + i));
+      iw.addDocument(document);
+    }
+    iw.commit();
+
+    DirectoryReader reader = iw.getReader();
+    SuggestIndexSearcher suggestIndexSearcher = new SuggestIndexSearcher(reader);
+    ContextQuery query =
+        new ContextQuery(new PrefixCompletionQuery(analyzer, new Term("suggest_field", "sugg")));
+    for (int i = 1; i < 1001; i++) {
+      query.addContext("group" + i, 1);
+    }
+    TopSuggestDocs suggest = suggestIndexSearcher.suggest(query, 5, false);
+    assertSuggestions(
+        suggest,
+        new Entry("suggestion1", "group1", 1000),
+        new Entry("suggestion2", "group2", 999),
+        new Entry("suggestion3", "group3", 998),
+        new Entry("suggestion4", "group4", 997),
+        new Entry("suggestion5", "group5", 996));
     reader.close();
     iw.close();
   }

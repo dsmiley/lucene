@@ -25,10 +25,11 @@ import java.util.OptionalLong;
 import org.apache.lucene.document.*;
 import org.apache.lucene.index.DirectoryReader;
 import org.apache.lucene.index.IndexReader;
-import org.apache.lucene.index.RandomIndexWriter;
 import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.PhraseQuery;
 import org.apache.lucene.store.*;
+import org.apache.lucene.tests.index.RandomIndexWriter;
+import org.apache.lucene.tests.store.BaseDirectoryTestCase;
 import org.junit.BeforeClass;
 
 public class TestDirectIODirectory extends BaseDirectoryTestCase {
@@ -103,7 +104,7 @@ public class TestDirectIODirectory extends BaseDirectoryTestCase {
   }
 
   public void testReadPastEOFShouldThrowEOFExceptionWithEmptyFile() throws Exception {
-    // fileSize needs to be 0 to test this condition. Do not randomized.
+    // fileSize needs to be 0 to test this condition. Do not randomize.
     final int fileSize = 0;
     try (Directory dir = getDirectory(createTempDir("testReadPastEOF"))) {
       try (IndexOutput o = dir.createOutput("out", newIOContext(random()))) {
@@ -206,6 +207,32 @@ public class TestDirectIODirectory extends BaseDirectoryTestCase {
               "dummy",
               new IOContext(new FlushInfo(numDocs, largeSize)),
               OptionalLong.of(largeSize)));
+    }
+  }
+
+  // Ping-pong seeks should be really fast, since the position should be within buffer.
+  // The test should complete within sub-second times, not minutes.
+  public void testSeekSmall() throws IOException {
+    Path tmpDir = createTempDir("testSeekSmall");
+    try (Directory dir = getDirectory(tmpDir)) {
+      int len = atLeast(100);
+      try (IndexOutput o = dir.createOutput("out", newIOContext(random()))) {
+        byte[] b = new byte[len];
+        for (int i = 0; i < len; i++) {
+          b[i] = (byte) i;
+        }
+        o.writeBytes(b, 0, len);
+      }
+      try (IndexInput in = dir.openInput("out", newIOContext(random()))) {
+        for (int i = 0; i < 100_000; i++) {
+          in.seek(2);
+          assertEquals(2, in.readByte());
+          in.seek(1);
+          assertEquals(1, in.readByte());
+          in.seek(0);
+          assertEquals(0, in.readByte());
+        }
+      }
     }
   }
 }

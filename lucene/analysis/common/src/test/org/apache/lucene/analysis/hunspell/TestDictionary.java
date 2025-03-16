@@ -28,14 +28,15 @@ import java.text.ParseException;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import org.apache.lucene.store.ByteBuffersDirectory;
 import org.apache.lucene.store.Directory;
+import org.apache.lucene.tests.util.LuceneTestCase;
 import org.apache.lucene.util.IntsRef;
-import org.apache.lucene.util.LuceneTestCase;
 import org.junit.Test;
 
 public class TestDictionary extends LuceneTestCase {
@@ -77,20 +78,45 @@ public class TestDictionary extends LuceneTestCase {
           reader.lines().skip(1).map(s -> s.split("/")[0]).collect(Collectors.toSet());
       int maxLength = allWords.stream().mapToInt(String::length).max().orElseThrow();
 
-      for (int i = 1; i <= maxLength + 1; i++) {
-        checkProcessWords(dictionary, allWords, i);
+      for (int min = 1; min <= maxLength + 1; min++) {
+        for (int max = min; max <= maxLength + 1; max++) {
+          checkProcessWords(dictionary, allWords, min, max);
+        }
       }
     }
   }
 
-  private void checkProcessWords(Dictionary dictionary, Set<String> allWords, int maxLength) {
-    Set<String> processed = new HashSet<>();
-    dictionary.words.processAllWords(maxLength, (word, __) -> processed.add(word.toString()));
+  public void testProcessSuggestibleWords() throws Exception {
+    Dictionary dictionary = loadDictionary("suggestible.aff", "suggestible.dic");
+
+    Set<String> processed = processSuggestibleWords(dictionary, 1, 100);
+    assertEquals(Set.of("normal", "ambiguous"), processed);
+  }
+
+  private void checkProcessWords(
+      Dictionary dictionary, Set<String> allWords, int minLength, int maxLength) {
+    Set<String> processed = processSuggestibleWords(dictionary, minLength, maxLength);
 
     Set<String> filtered =
-        allWords.stream().filter(s -> s.length() <= maxLength).collect(Collectors.toSet());
+        allWords.stream()
+            .filter(s -> minLength <= s.length() && s.length() <= maxLength)
+            .collect(Collectors.toSet());
 
-    assertEquals("For length " + maxLength, filtered, processed);
+    assertEquals("For lengths [" + minLength + "," + maxLength + "]", filtered, processed);
+  }
+
+  private static Set<String> processSuggestibleWords(
+      Dictionary dictionary, int minLength, int maxLength) {
+    Set<String> processed = new HashSet<>();
+    dictionary.words.processSuggestibleWords(
+        minLength, maxLength, e -> processed.add(e.root().toString()));
+
+    Set<String> cached = new HashSet<>();
+    SuggestibleEntryCache.buildCache(dictionary.words)
+        .processSuggestibleWords(minLength, maxLength, e -> cached.add(e.root().toString()));
+    assertEquals(processed, cached);
+
+    return processed;
   }
 
   public void testCompressedDictionary() throws Exception {
@@ -123,6 +149,19 @@ public class TestDictionary extends LuceneTestCase {
         expectThrows(ParseException.class, () -> loadDictionary("broken.aff", "simple.dic"));
     assertTrue(expected.getMessage().startsWith("Invalid syntax"));
     assertEquals(24, expected.getErrorOffset());
+
+    List<String> names =
+        List.of(
+            "broken_missingAffRule.aff",
+            "broken_extraAffRule.aff",
+            "broken_extraAffRule_last.aff",
+            "broken_extraAffRule_beforeAnother.aff",
+            "broken_mismatchedAffix.aff");
+
+    for (String name : names) {
+      String msg = "Expected ParseException on " + name;
+      expectThrows(ParseException.class, msg, () -> loadDictionary(name, "simple.dic"));
+    }
   }
 
   public void testUsingFlagsBeforeFlagDirective() throws IOException, ParseException {
@@ -140,12 +179,24 @@ public class TestDictionary extends LuceneTestCase {
   }
 
   public void testForgivableErrors() throws Exception {
-    Dictionary dictionary = loadDictionary("forgivable-errors.aff", "forgivable-errors.dic");
+    Dictionary dictionary =
+        loadForgivingDictionary("forgivable-errors.aff", "forgivable-errors.dic");
     assertEquals(1, dictionary.repTable.size());
     assertEquals(2, dictionary.compoundMax);
 
-    loadDictionary("forgivable-errors-long.aff", "single-word.dic");
-    loadDictionary("forgivable-errors-num.aff", "single-word.dic");
+    loadForgivingDictionary("forgivable-errors-long.aff", "single-word.dic");
+    loadForgivingDictionary("forgivable-errors-num.aff", "single-word.dic");
+  }
+
+  /** simple tests for dictionary problems seen in the wild */
+  public void testCommonForgivableErrors() throws Exception {
+    Dictionary dictionary = loadForgivingDictionary("common-errors.aff", "common-errors.dic");
+    // try to ensure we still parsed the affixes correctly, despite the problems
+    String expectedSuffixes[] = {"ing", "ed"};
+    for (String suffix : expectedSuffixes) {
+      char reversed[] = new StringBuilder(suffix).reverse().toString().toCharArray();
+      assertNotNull("checking for " + suffix, dictionary.lookupSuffix(reversed));
+    }
   }
 
   private Dictionary loadDictionary(String aff, String dic) throws IOException, ParseException {
@@ -153,6 +204,30 @@ public class TestDictionary extends LuceneTestCase {
         InputStream dicStream = getClass().getResourceAsStream(dic);
         Directory tempDir = getDirectory()) {
       return new Dictionary(tempDir, "dictionary", affixStream, dicStream);
+    }
+  }
+
+  private Dictionary loadForgivingDictionary(String aff, String dic)
+      throws IOException, ParseException {
+    try (InputStream affixStream = getClass().getResourceAsStream(aff);
+        InputStream dicStream = getClass().getResourceAsStream(dic);
+        Directory tempDir = getDirectory()) {
+      return new Dictionary(tempDir, "dictionary", affixStream, dicStream) {
+        @Override
+        protected boolean tolerateAffixRuleCountMismatches() {
+          return true;
+        }
+
+        @Override
+        protected boolean tolerateRepRuleCountMismatches() {
+          return true;
+        }
+
+        @Override
+        protected boolean tolerateDuplicateConversionMappings() {
+          return true;
+        }
+      };
     }
   }
 
@@ -269,7 +344,9 @@ public class TestDictionary extends LuceneTestCase {
     DictEntries simpleNoun = dic.lookupEntries("simplenoun");
     assertEquals(1, simpleNoun.size());
     assertEquals(Collections.emptyList(), simpleNoun.getMorphologicalValues(0, "aa:"));
-    assertEquals(Collections.singletonList("42"), simpleNoun.getMorphologicalValues(0, "fr:"));
+    assertEquals(List.of("42"), simpleNoun.getMorphologicalValues(0, "fr:"));
+    assertEquals(List.of("42"), simpleNoun.get(0).getMorphologicalValues("fr:"));
+    assertEquals("A", simpleNoun.get(0).getFlags());
 
     DictEntries lay = dic.lookupEntries("lay");
     String actual =

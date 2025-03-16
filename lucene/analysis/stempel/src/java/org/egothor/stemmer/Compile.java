@@ -67,10 +67,6 @@ import org.apache.lucene.util.SuppressForbidden;
 /** The Compile class is used to compile a stemmer table. */
 public class Compile {
 
-  static boolean backward;
-  static boolean multi;
-  static Trie trie;
-
   /** no instantiation */
   private Compile() {}
 
@@ -89,9 +85,7 @@ public class Compile {
       return;
     }
 
-    args[0].toUpperCase(Locale.ROOT);
-
-    backward = args[0].charAt(0) == '-';
+    boolean backward = args[0].charAt(0) == '-';
     int qq = (backward) ? 1 : 0;
     boolean storeorig = false;
 
@@ -100,14 +94,14 @@ public class Compile {
       qq++;
     }
 
-    multi = args[0].charAt(qq) == 'M';
+    boolean multi = args[0].charAt(qq) == 'M';
     if (multi) {
       qq++;
     }
 
     String charset = System.getProperty("egothor.stemmer.charset", "UTF-8");
 
-    char optimizer[] = new char[args[0].length() - qq];
+    char[] optimizer = new char[args[0].length() - qq];
     for (int i = 0; i < optimizer.length; i++) {
       optimizer[i] = args[0].charAt(qq + i);
     }
@@ -116,7 +110,7 @@ public class Compile {
       // System.out.println("[" + args[i] + "]");
       Diff diff = new Diff();
 
-      allocTrie();
+      Trie trie = allocTrie(multi, backward);
 
       System.out.println(args[i]);
       try (LineNumberReader in =
@@ -136,7 +130,9 @@ public class Compile {
                 trie.add(token, diff.exec(token, stem));
               }
             }
-          } catch (java.util.NoSuchElementException x) {
+          } catch (
+              @SuppressWarnings("unused")
+              java.util.NoSuchElementException x) {
             // no base token (stem) on a line
           }
         }
@@ -148,9 +144,9 @@ public class Compile {
       Lift e = new Lift(false);
       Gener g = new Gener();
 
-      for (int j = 0; j < optimizer.length; j++) {
+      for (char c : optimizer) {
         String prefix;
-        switch (optimizer[j]) {
+        switch (c) {
           case 'G':
             trie = trie.reduce(g);
             prefix = "G: ";
@@ -186,11 +182,11 @@ public class Compile {
     }
   }
 
-  static void allocTrie() {
+  static Trie allocTrie(boolean multi, boolean backward) {
     if (multi) {
-      trie = new MultiTrie2(!backward);
+      return new MultiTrie2(!backward);
     } else {
-      trie = new Trie(!backward);
+      return new Trie(!backward);
     }
   }
 }

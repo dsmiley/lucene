@@ -17,17 +17,17 @@
 package org.apache.lucene.backward_codecs.lucene50.compressing;
 
 import java.io.IOException;
+import org.apache.lucene.backward_codecs.compressing.CompressionMode;
+import org.apache.lucene.backward_codecs.packed.LegacyDirectMonotonicWriter;
 import org.apache.lucene.codecs.CodecUtil;
 import org.apache.lucene.codecs.StoredFieldsFormat;
 import org.apache.lucene.codecs.StoredFieldsReader;
 import org.apache.lucene.codecs.StoredFieldsWriter;
-import org.apache.lucene.codecs.compressing.CompressionMode;
 import org.apache.lucene.index.FieldInfos;
 import org.apache.lucene.index.MergePolicy;
 import org.apache.lucene.index.SegmentInfo;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.IOContext;
-import org.apache.lucene.util.packed.DirectMonotonicWriter;
 
 /**
  * A {@link StoredFieldsFormat} that compresses documents in chunks in order to improve the
@@ -45,14 +45,19 @@ public class Lucene50CompressingStoredFieldsFormat extends StoredFieldsFormat {
 
   /** format name */
   protected final String formatName;
+
   /** segment suffix */
   protected final String segmentSuffix;
+
   /** compression mode */
   protected final CompressionMode compressionMode;
+
   /** chunk size */
   protected final int chunkSize;
+
   /** max docs per chunk */
   protected final int maxDocsPerChunk;
+
   /** block shift */
   protected final int blockShift;
 
@@ -120,13 +125,13 @@ public class Lucene50CompressingStoredFieldsFormat extends StoredFieldsFormat {
       throw new IllegalArgumentException("maxDocsPerChunk must be >= 1");
     }
     this.maxDocsPerChunk = maxDocsPerChunk;
-    if (blockShift < DirectMonotonicWriter.MIN_BLOCK_SHIFT
-        || blockShift > DirectMonotonicWriter.MAX_BLOCK_SHIFT) {
+    if (blockShift < LegacyDirectMonotonicWriter.MIN_BLOCK_SHIFT
+        || blockShift > LegacyDirectMonotonicWriter.MAX_BLOCK_SHIFT) {
       throw new IllegalArgumentException(
           "blockSize must be in "
-              + DirectMonotonicWriter.MIN_BLOCK_SHIFT
+              + LegacyDirectMonotonicWriter.MIN_BLOCK_SHIFT
               + "-"
-              + DirectMonotonicWriter.MAX_BLOCK_SHIFT
+              + LegacyDirectMonotonicWriter.MAX_BLOCK_SHIFT
               + ", got "
               + blockShift);
     }

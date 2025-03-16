@@ -19,7 +19,6 @@ package org.apache.lucene.analysis.classic;
 import java.io.IOException;
 import java.util.Arrays;
 import org.apache.lucene.analysis.Analyzer;
-import org.apache.lucene.analysis.BaseTokenStreamTestCase;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field;
 import org.apache.lucene.document.TextField;
@@ -33,6 +32,7 @@ import org.apache.lucene.index.Term;
 import org.apache.lucene.search.DocIdSetIterator;
 import org.apache.lucene.store.ByteBuffersDirectory;
 import org.apache.lucene.store.Directory;
+import org.apache.lucene.tests.analysis.BaseTokenStreamTestCase;
 import org.apache.lucene.util.BytesRef;
 
 /** tests for classicanalyzer */
@@ -125,15 +125,12 @@ public class TestClassicAnalyzer extends BaseTokenStreamTestCase {
     assertAnalyzesTo(a, "Excite@Home", new String[] {"excite@home"});
   }
 
+  // should not throw NPE
   public void testLucene1140() throws Exception {
-    try {
-      ClassicAnalyzer analyzer = new ClassicAnalyzer();
-      assertAnalyzesTo(
-          analyzer, "www.nutch.org.", new String[] {"www.nutch.org"}, new String[] {"<HOST>"});
-      analyzer.close();
-    } catch (NullPointerException e) {
-      fail("Should not throw an NPE and it did");
-    }
+    ClassicAnalyzer analyzer = new ClassicAnalyzer();
+    assertAnalyzesTo(
+        analyzer, "www.nutch.org.", new String[] {"www.nutch.org"}, new String[] {"<HOST>"});
+    analyzer.close();
   }
 
   public void testDomainNames() throws Exception {

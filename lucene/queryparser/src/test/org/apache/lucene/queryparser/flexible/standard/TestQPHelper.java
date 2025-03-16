@@ -28,9 +28,6 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.TimeZone;
 import org.apache.lucene.analysis.Analyzer;
-import org.apache.lucene.analysis.MockAnalyzer;
-import org.apache.lucene.analysis.MockTokenFilter;
-import org.apache.lucene.analysis.MockTokenizer;
 import org.apache.lucene.analysis.TokenFilter;
 import org.apache.lucene.analysis.TokenStream;
 import org.apache.lucene.analysis.Tokenizer;
@@ -70,14 +67,17 @@ import org.apache.lucene.search.PhraseQuery;
 import org.apache.lucene.search.PrefixQuery;
 import org.apache.lucene.search.Query;
 import org.apache.lucene.search.RegexpQuery;
-import org.apache.lucene.search.ScoreDoc;
 import org.apache.lucene.search.TermQuery;
 import org.apache.lucene.search.TermRangeQuery;
 import org.apache.lucene.search.WildcardQuery;
 import org.apache.lucene.store.Directory;
-import org.apache.lucene.util.LuceneTestCase;
+import org.apache.lucene.tests.analysis.MockAnalyzer;
+import org.apache.lucene.tests.analysis.MockTokenFilter;
+import org.apache.lucene.tests.analysis.MockTokenizer;
+import org.apache.lucene.tests.util.LuceneTestCase;
 import org.apache.lucene.util.automaton.Automata;
 import org.apache.lucene.util.automaton.CharacterRunAutomaton;
+import org.apache.lucene.util.automaton.Operations;
 import org.apache.lucene.util.automaton.RegExp;
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
@@ -308,15 +308,18 @@ public class TestQPHelper extends LuceneTestCase {
         new StandardQueryParser(new MockAnalyzer(random(), MockTokenizer.WHITESPACE, false));
     Query q = qp.parse("foo*bar", "field");
     assertTrue(q instanceof WildcardQuery);
-    assertEquals(MultiTermQuery.CONSTANT_SCORE_REWRITE, ((MultiTermQuery) q).getRewriteMethod());
+    assertEquals(
+        MultiTermQuery.CONSTANT_SCORE_BLENDED_REWRITE, ((MultiTermQuery) q).getRewriteMethod());
 
     q = qp.parse("foo*", "field");
     assertTrue(q instanceof PrefixQuery);
-    assertEquals(MultiTermQuery.CONSTANT_SCORE_REWRITE, ((MultiTermQuery) q).getRewriteMethod());
+    assertEquals(
+        MultiTermQuery.CONSTANT_SCORE_BLENDED_REWRITE, ((MultiTermQuery) q).getRewriteMethod());
 
     q = qp.parse("[a TO z]", "field");
     assertTrue(q instanceof TermRangeQuery);
-    assertEquals(MultiTermQuery.CONSTANT_SCORE_REWRITE, ((MultiTermQuery) q).getRewriteMethod());
+    assertEquals(
+        MultiTermQuery.CONSTANT_SCORE_BLENDED_REWRITE, ((MultiTermQuery) q).getRewriteMethod());
   }
 
   public void testCJK() throws Exception {
@@ -646,7 +649,7 @@ public class TestQPHelper extends LuceneTestCase {
   public void testRange() throws Exception {
     assertQueryEquals("[ a TO z]", null, "[a TO z]");
     assertEquals(
-        MultiTermQuery.CONSTANT_SCORE_REWRITE,
+        MultiTermQuery.CONSTANT_SCORE_BLENDED_REWRITE,
         ((TermRangeQuery) getQuery("[ a TO z]", null)).getRewriteMethod());
 
     StandardQueryParser qp = new StandardQueryParser();
@@ -1152,14 +1155,6 @@ public class TestQPHelper extends LuceneTestCase {
     assertEquals(q, qp.parse("/[a-z][123]/", df));
     assertEquals(q, qp.parse("/[A-Z][123]/", df));
     assertEquals(new BoostQuery(q, 0.5f), qp.parse("/[A-Z][123]/^0.5", df));
-    qp.setMultiTermRewriteMethod(MultiTermQuery.SCORING_BOOLEAN_REWRITE);
-    q.setRewriteMethod(MultiTermQuery.SCORING_BOOLEAN_REWRITE);
-    assertEquals(new BoostQuery(q, 0.5f), qp.parse("/[A-Z][123]/^0.5", df));
-    assertEquals(
-        MultiTermQuery.SCORING_BOOLEAN_REWRITE,
-        ((RegexpQuery) (((BoostQuery) qp.parse("/[A-Z][123]/^0.5", df)).getQuery()))
-            .getRewriteMethod());
-    qp.setMultiTermRewriteMethod(MultiTermQuery.CONSTANT_SCORE_REWRITE);
 
     Query escaped = new RegexpQuery(new Term("field", "[a-z]\\/[123]"));
     assertEquals(escaped, qp.parse("/[a-z]\\/[123]/", df));
@@ -1198,6 +1193,21 @@ public class TestQPHelper extends LuceneTestCase {
     two.add(new RegexpQuery(new Term("field", "bar")), Occur.SHOULD);
     assertEquals(two.build(), qp.parse("field:/foo/ field:/bar/", df));
     assertEquals(two.build(), qp.parse("/foo/ /bar/", df));
+
+    qp.setMultiTermRewriteMethod(MultiTermQuery.SCORING_BOOLEAN_REWRITE);
+    q =
+        new RegexpQuery(
+            new Term("field", "[a-z][123]"),
+            RegExp.ALL,
+            0,
+            _ -> null,
+            Operations.DEFAULT_DETERMINIZE_WORK_LIMIT,
+            MultiTermQuery.SCORING_BOOLEAN_REWRITE);
+    assertEquals(new BoostQuery(q, 0.5f), qp.parse("/[A-Z][123]/^0.5", df));
+    assertEquals(
+        MultiTermQuery.SCORING_BOOLEAN_REWRITE,
+        ((RegexpQuery) (((BoostQuery) qp.parse("/[A-Z][123]/^0.5", df)).getQuery()))
+            .getRewriteMethod());
   }
 
   public void testStopwords() throws Exception {
@@ -1230,12 +1240,12 @@ public class TestQPHelper extends LuceneTestCase {
 
     String qtxt = "\"the words in poisitions pos02578 are stopped in this phrasequery\"";
     // 0 2 5 7 8
-    int expectedPositions[] = {1, 3, 4, 6, 9};
+    int[] expectedPositions = {1, 3, 4, 6, 9};
     PhraseQuery pq = (PhraseQuery) qp.parse(qtxt, "a");
     // System.out.println("Query text: "+qtxt);
     // System.out.println("Result: "+pq);
-    Term t[] = pq.getTerms();
-    int pos[] = pq.getPositions();
+    Term[] t = pq.getTerms();
+    int[] pos = pq.getPositions();
     for (int i = 0; i < t.length; i++) {
       // System.out.println(i+". "+t[i]+"  pos: "+pos[i]);
       assertEquals(
@@ -1251,19 +1261,8 @@ public class TestQPHelper extends LuceneTestCase {
     assertEquals(new MatchAllDocsQuery(), qp.parse("(*:*)", "field"));
     BooleanQuery bq = (BooleanQuery) qp.parse("+*:* -*:*", "field");
     for (BooleanClause c : bq) {
-      assertTrue(c.getQuery().getClass() == MatchAllDocsQuery.class);
+      assertTrue(c.query().getClass() == MatchAllDocsQuery.class);
     }
-  }
-
-  private void assertHits(int expected, String query, IndexSearcher is)
-      throws IOException, QueryNodeException {
-    StandardQueryParser qp = new StandardQueryParser();
-    qp.setAnalyzer(new MockAnalyzer(random(), MockTokenizer.WHITESPACE, false));
-    qp.setLocale(Locale.ENGLISH);
-
-    Query q = qp.parse(query, "date");
-    ScoreDoc[] hits = is.search(q, 1000).scoreDocs;
-    assertEquals(expected, hits.length);
   }
 
   @Override
@@ -1330,7 +1329,7 @@ public class TestQPHelper extends LuceneTestCase {
 
     Query q = new StandardQueryParser(new CannedAnalyzer()).parse("\"a\"", "field");
     assertTrue(q instanceof MultiPhraseQuery);
-    assertEquals(1, s.search(q, 10).totalHits.value);
+    assertEquals(1, s.search(q, 10).totalHits.value());
     r.close();
     w.close();
     dir.close();
